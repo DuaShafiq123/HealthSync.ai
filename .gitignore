@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+DATASET_2/
+outputs/
+*.avi
+*.mp4
