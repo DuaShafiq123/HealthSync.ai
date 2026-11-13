@@ -1,0 +1,22 @@
+{
+  "CONFIG": {
+    "skip_sec": 3,
+    "win_sec": 30,
+    "step_sec": 1,
+    "band_low_hz": 0.7,
+    "band_high_hz": 4.0,
+    "peak_prominence": 0.6,
+    "reference_prominence": 0.3,
+    "min_beats": 3,
+    "max_hr_bpm": 200,
+    "pos_win_sec": 1.6,
+    "n_init_frames": 30
+  },
+  "DEBUG_SUBJECTS": [
+    "subject1",
+    "subject3",
+    "subject8",
+    "subject13",
+    "subject22"
+  ]
+}

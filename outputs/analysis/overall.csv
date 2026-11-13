@@ -1,0 +1,11 @@
+group,subjects,reference,n_windows,MAE,RMSE,pearson_r,pct_within_5,mean_of_subject_MAE,median_of_subject_MAE
+UNSEEN,37,vs wave,1268,3.62,6.61,0.93,78.79,3.85,1.37
+UNSEEN,37,vs file (raw),1268,8.09,19.67,0.47,71.45,7.99,2.39
+UNSEEN,37,vs file (clean),1268,3.47,5.43,0.95,76.89,3.59,2.0
+UNSEEN,37,"vs wave, refs agree",1105,2.83,5.13,0.96,82.44,3.01,1.35
+UNSEEN,37,"vs file clean, refs agree",1105,3.21,5.31,0.95,81.99,3.37,1.84
+DEBUG,5,vs wave,154,0.9,1.29,0.98,100.0,0.89,0.45
+DEBUG,5,vs file (raw),154,2.59,3.81,0.81,81.82,2.71,1.36
+DEBUG,5,vs file (clean),154,2.59,3.81,0.81,81.82,2.71,1.36
+DEBUG,5,"vs wave, refs agree",130,0.68,1.07,0.97,100.0,0.84,0.45
+DEBUG,5,"vs file clean, refs agree",130,1.5,1.97,0.91,96.92,2.33,1.36
