@@ -119,8 +119,8 @@ def main():
             row = {"group": g, "subjects": n_subj, "reference": ref_name}
             row.update(metrics(q["video_hr"].values.astype(float), q[ref_col].values.astype(float)))
             # subject-level MAE (each subject counts once)
-            subj_mae = q.groupby("subject").apply(
-                lambda x: (x["video_hr"] - x[ref_col]).abs().mean())
+            # (no groupby.apply: it returns an empty DataFrame, not a Series, when q is empty)
+            subj_mae = (q["video_hr"] - q[ref_col]).abs().groupby(q["subject"]).mean()
             row["mean_of_subject_MAE"] = subj_mae.mean()
             row["median_of_subject_MAE"] = subj_mae.median()
             overall.append(row)

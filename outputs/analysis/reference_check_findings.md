@@ -20,9 +20,11 @@
 
 ## 2. The fix tested for the wave reference
 
-Old (counts extra bumps):
+Old rule, as it really is in `rppg_frozen.py` (`peak_rate()` with `reference_prominence = 0.3`). It already has a prominence rule, but it is 0.3 × the **standard deviation** of the **band-passed** (0.7–4 Hz) wave, with a minimum gap of 60/200 = 0.3 s. That is too small to reject the dicrotic notch on subjects 5 and 39:
 ```python
-peaks, _ = find_peaks(w, distance=int(fs * 0.33))
+w = bandpass(gt["ppg"], gt["fs"])            # 0.7-4 Hz
+x = w_window - np.mean(w_window)
+peaks, _ = find_peaks(x, distance=int(fs * 60 / 200), prominence=0.3 * np.std(x))
 ```
 
 Fixed (only counts tall peaks):
@@ -33,7 +35,7 @@ peaks, _ = find_peaks(w, distance=int(fs * 0.33), prominence=0.3 * signal_range)
 
 - `distance = 0.33 s` means at most 180 bpm.
 - `prominence = 0.3 × signal range` means a peak must stick out clearly above the dips around it. Real beats do; the small bumps do not.
-- **Note:** this fix was tested in `check_subject.py`, not yet in `rppg_frozen.py`. We still need to confirm that `rppg_frozen.py` counts wave peaks the same (old) way.
+- **Note:** this fix was tested in `check_subject.py`, not yet in `rppg_frozen.py`. The fixed rule also runs on the **raw** (not band-passed) wave and uses the **range** (95th − 5th percentile), not the std. So it differs from the frozen rule in three ways (filtering, prominence scale, gap 0.33 s vs 0.3 s), not only by "adding prominence".
 
 ---
 
@@ -135,7 +137,8 @@ Subjects 25, 26, 38, 45, 18, a little 17 and 41, and now **39** (small).
 
 ## 6. Next steps
 
-- [ ] Check how `rppg_frozen.py` counts wave peaks (is it the same old rule?).
+- [x] Check how `rppg_frozen.py` counts wave peaks: NOT the same as the snippet first written here (see section 2, corrected).
+- [ ] Use one file-HR rule everywhere: `analyze_frozen.py` uses 40–220 BPM and keeps any window with at least one good sample; `check_subject.py` and `compare_wave_methods.py` use 40–180 BPM and need 80% good samples.
 - [ ] Discuss the fix with the team and supervisor before changing anything (the pipeline is frozen).
 - [ ] Write `clean_references.py`: apply the wave fix + the file 40–180 rule to all 41 subjects and save to `outputs/frozen_cleaned/` (the frozen results stay unchanged).
 - [ ] Needs all 41 `ground_truth.txt` files (text only, no videos).
@@ -325,3 +328,21 @@ Mean error video vs OLD wave:   20.15
 Mean error video vs FIXED wave: 5.16
 Mean error video vs file:       3.64
 ```
+
+---
+
+## Addendum: reproduction and failure figures (17 Nov 2026, second machine)
+
+**Reproduction.** `rppg_frozen.py` was re-run on a second laptop (macOS, Python 3.15, pandas 3.1) on the 12 subjects whose videos were downloaded (5, 16, 17, 18, 34, 35, 36, 38, 39, 41, 42, 49). All 415 windows match `outputs/frozen/windows.csv` exactly (difference 0.0 for video, wave and file HR). `analyze_frozen.py` on the official ground-truth files reproduces `overall.csv`, `per_subject.csv` and `windows_analysis.csv` byte for byte.
+
+**One mismatch.** `compare_wave_methods.py` reproduces every row except **subject24** (for example, count_vs_file is 4.19 instead of 4.03). The script logic was not changed, so the local `DATASET_2/subject24/ground_truth.txt` may differ from the official file, or the CSV came from an earlier version of the script. Please check.
+
+**Failure figures** (`inspect_failures.py`, kept locally, not committed: they show faces):
+
+| Subject | What the figure shows | Likely cause |
+|---|---|---|
+| subject38 | Face drifts slowly by about 32 px over the video (fixed box); forehead box sits on the hair fringe; skin brightness falls from 130 to 115. Video misses beats and is about 10 BPM low. | Slow drift + bad forehead region |
+| subject41 | Sudden head movements at about 10, 27 and 60 s (up to 100 px) with brightness jumps; cheek boxes sit on the glasses. The wave reference also counts notch peaks. | Movement + glasses; reference also unreliable |
+| subject39 | Face steady (under 11 px). Wave counter marks the dicrotic notch as beats (visible in the zoom). | Confirms the wave bug; the video error at 11–25 s is not caused by movement |
+
+**Dataset note** (from the UBFC readme and Agreement.xlsx): the faces of subjects 21 and 27 must not appear in any publication, presentation or report. The dataset authors evaluated against HR from the contact PPG **wave**, not the HR numbers in the file.
