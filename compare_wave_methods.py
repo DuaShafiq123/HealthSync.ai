@@ -155,6 +155,11 @@ for subject in SUBJECTS:
 # ===============================================================
 # PRINT AND SAVE
 # ===============================================================
+if not summary:
+    print("\nNo subject could be checked (no rows in windows.csv or no ground_truth.txt "
+          "in DATASET_2). Nothing to save.")
+    raise SystemExit(1)
+
 win_df = pd.DataFrame(all_rows).round(2)
 sum_df = pd.DataFrame(summary)
 pd.set_option("display.width", 250)

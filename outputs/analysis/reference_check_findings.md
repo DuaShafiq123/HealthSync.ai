@@ -20,9 +20,11 @@
 
 ## 2. The fix tested for the wave reference
 
-Old (counts extra bumps):
+Old rule, as it really is in `rppg_frozen.py` (`peak_rate()` with `reference_prominence = 0.3`). It already has a prominence rule, but it is 0.3 × the **standard deviation** of the **band-passed** (0.7–4 Hz) wave, with a minimum gap of 60/200 = 0.3 s. That is too small to reject the dicrotic notch on subjects 5 and 39:
 ```python
-peaks, _ = find_peaks(w, distance=int(fs * 0.33))
+w = bandpass(gt["ppg"], gt["fs"])            # 0.7-4 Hz
+x = w_window - np.mean(w_window)
+peaks, _ = find_peaks(x, distance=int(fs * 60 / 200), prominence=0.3 * np.std(x))
 ```
 
 Fixed (only counts tall peaks):
@@ -33,7 +35,7 @@ peaks, _ = find_peaks(w, distance=int(fs * 0.33), prominence=0.3 * signal_range)
 
 - `distance = 0.33 s` means at most 180 bpm.
 - `prominence = 0.3 × signal range` means a peak must stick out clearly above the dips around it. Real beats do; the small bumps do not.
-- **Note:** this fix was tested in `check_subject.py`, not yet in `rppg_frozen.py`. We still need to confirm that `rppg_frozen.py` counts wave peaks the same (old) way.
+- **Note:** this fix was tested in `check_subject.py`, not yet in `rppg_frozen.py`. The fixed rule also runs on the **raw** (not band-passed) wave and uses the **range** (95th − 5th percentile), not the std. So it differs from the frozen rule in three ways (filtering, prominence scale, gap 0.33 s vs 0.3 s), not only by "adding prominence".
 
 ---
 
@@ -135,7 +137,8 @@ Subjects 25, 26, 38, 45, 18, a little 17 and 41, and now **39** (small).
 
 ## 6. Next steps
 
-- [ ] Check how `rppg_frozen.py` counts wave peaks (is it the same old rule?).
+- [x] Check how `rppg_frozen.py` counts wave peaks: NOT the same as the snippet first written here (see section 2, corrected).
+- [ ] Use one file-HR rule everywhere: `analyze_frozen.py` uses 40–220 BPM and keeps any window with at least one good sample; `check_subject.py` and `compare_wave_methods.py` use 40–180 BPM and need 80% good samples.
 - [ ] Discuss the fix with the team and supervisor before changing anything (the pipeline is frozen).
 - [ ] Write `clean_references.py`: apply the wave fix + the file 40–180 rule to all 41 subjects and save to `outputs/frozen_cleaned/` (the frozen results stay unchanged).
 - [ ] Needs all 41 `ground_truth.txt` files (text only, no videos).

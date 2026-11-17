@@ -90,6 +90,9 @@ def extract_rgb_fixed(video_path, cfg=CONFIG):
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")
     fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or fps <= 0:
+        cap.release()
+        raise RuntimeError(f"Video reports no frame rate (fps={fps}): {video_path}")
 
     dets = []
     for _ in range(cfg["n_init_frames"]):

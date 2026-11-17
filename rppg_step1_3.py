@@ -9,7 +9,6 @@ SUBJECT_DIR = "DATASET_2/subject1"
 OUT_DIR = "outputs/subject1"
 MAX_FRAMES = 300          # use 300 for a quick test, None for the full video
 
-os.makedirs(OUT_DIR, exist_ok=True)
 VIDEO_PATH = os.path.join(SUBJECT_DIR, "vid.avi")
 GT_PATH = os.path.join(SUBJECT_DIR, "ground_truth.txt")
 
@@ -172,6 +171,9 @@ def extract_rgb_signals(video_path, fps, max_frames=None):
 
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
+    # created here, not at import time: rppg_frozen.py and the analysis scripts import this
+    # module and should not create outputs/subject1 as a side effect
+    os.makedirs(OUT_DIR, exist_ok=True)
     print("=== STEP 1: Video info ===")
     info = inspect_video(VIDEO_PATH)
     for k, v in info.items():

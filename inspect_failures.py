@@ -40,6 +40,9 @@ def read_subject(video_path, cfg=CONFIG):
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")
     fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or fps <= 0:
+        cap.release()
+        raise RuntimeError(f"Video reports no frame rate (fps={fps}): {video_path}")
     n_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     dets = []
@@ -84,13 +87,16 @@ def read_subject(video_path, cfg=CONFIG):
         idx += 1
     cap.release()
 
-    frames = [f for f in keep.values() if f is not None]
-    if len(frames) < 3 and last_frame is not None:
-        frames.append(last_frame)
+    # The reported frame count (n_total) is often wrong for .avi files, so label each
+    # sample frame with the time of the frame that was really kept.
+    kept = [(i, f) for i, f in sorted(keep.items()) if f is not None]
+    if len(kept) < 3 and last_frame is not None and (not kept or kept[-1][0] != idx - 1):
+        kept.append((idx - 1, last_frame))
+    kept = kept[:3]
     t = np.arange(idx) / fps
     return {"fps": fps, "box": box, "rgb": np.array(rgb), "t": t,
             "move_t": np.array(move_t), "move_px": np.array(move_px),
-            "frames": frames[:3], "frame_times": [0, (idx // 2) / fps, (idx - 1) / fps]}
+            "frames": [f for _, f in kept], "frame_times": [i / fps for i, _ in kept]}
 
 
 def draw_box(frame_rgb, box):
@@ -162,7 +168,7 @@ def inspect(subject, root, win_df, out_dir, cfg=CONFIG):
     ax.legend()
 
     # Row 3: 10 s zoom from the worst window
-    if len(w):
+    if w["err"].notna().any():      # idxmax raises if every error is NaN
         worst = w.loc[w["err"].idxmax()]
         a = float(worst["start_s"])
     else:
