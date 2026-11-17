@@ -1,7 +1,12 @@
-# Tested with these versions (Python 3.14.3, Windows, Nov 2026).
+# Version ranges: pip picks a version that works with your Python (decision D-19).
 # opencv-python must stay below 5: OpenCV 5.0 has no CascadeClassifier (decision D-03).
-opencv-python==4.14.0.94
-numpy==2.5.4
-pandas==3.1.1
-matplotlib==3.11.2
-scipy==1.18.1
+#
+# Tested versions (all give the same results):
+#   Dua:    Python 3.14.3, Windows - opencv-python 4.14.0.94, numpy 2.5.4, pandas 3.1.1, matplotlib 3.11.2, scipy 1.18.1
+#   Abeera: Python 3.11.9, Windows - opencv-python 4.14.0.94, numpy 2.4.6, pandas 3.1.1, matplotlib 3.11.2, scipy 1.17.1
+#   Mehroz: Python 3.15, macOS     - pandas 3.1 (reproduced the frozen run exactly)
+opencv-python>=4.14,<5
+numpy>=2.4,<3
+pandas>=3.1,<4
+matplotlib>=3.11,<4
+scipy>=1.17,<2

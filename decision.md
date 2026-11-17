@@ -167,7 +167,14 @@ All tests below were done in `explore.ipynb` on the debug subjects (see D-10).
 - **Decision:** `requirements.txt` lists exact versions (`==`): opencv-python 4.14.0.94, numpy 2.5.4, pandas 3.1.1, matplotlib 3.11.2, scipy 1.18.1, tested with Python 3.14.3 on Windows.
 - **Why:** Without versions, each person gets whatever is newest on the day they install, so results could change later without anyone noticing. With exact versions, the supervisor, examiners and teammates get the same libraries.
 - **Evidence:** Mehroz reproduced all 415 windows exactly with different versions (Python 3.15, pandas 3.1, macOS), so the current results do not depend on these exact versions. This is a safety measure for the future.
-- **Status:** ACTIVE. Abeera and Mehroz should test `pip install -r requirements.txt` once. If a version does not install on their Python, loosen only that line to a range (for example `numpy>=2,<3`).
+- **Status:** REPLACED by D-19 (17 Nov 2026).
+
+### D-19: Use version ranges in `requirements.txt`, and write down the tested versions
+- **Date / who:** 17 Nov 2026, Dua and Abeera
+- **Decision:** `requirements.txt` uses ranges (`>=` lowest tested version, `<` next major version) instead of exact versions. The exact versions each person tested are written as comments at the top of the file.
+- **Why:** The exact versions from D-18 did not install on Abeera's laptop: `numpy 2.5.4` needs Python 3.12 or newer, and Abeera has Python 3.11.9. Ranges let pip choose a version that works with each person's Python.
+- **Evidence:** Abeera's frozen run and cleaned results were made with numpy 2.4.6 and scipy 1.17.1 (Python 3.11.9). On 17 Nov she re-ran `clean_references.py` and `compare_wave_methods.py` on branch `cleanup/repo-tidy`, and every CSV and JSON file was byte-for-byte identical. Mehroz also reproduced the results with Python 3.15. So the results do not depend on these exact versions.
+- **Status:** ACTIVE
 
 ---
 
@@ -182,5 +189,5 @@ All tests below were done in `explore.ipynb` on the debug subjects (see D-10).
 | O-05 | Why do **group (c)** subjects fail (26, 25, 18, 38, 41, 45, 39)? | 25 and 26 were recorded at about 23 fps (others about 30). 38 = slow drift and hair, 41 = movement and glasses. The method can **not** be changed on these subjects (D-10). Any new method must be built on another dataset first. |
 | O-06 | Test **CHROM** and a second dataset (**PURE**) | Planned in D-01 and D-11, not started. |
 | O-07 | **Reference sensor** for our own phone recordings | Polar H10 (about PKR 40,000) or finger oximeter (about PKR 4,000). |
-| O-08 | **Subject 24** gives 4.19 on Mehroz's laptop vs 4.03 in our CSV | Check whether the local `ground_truth.txt` matches the official file. Subject 24 also changed the most after cleaning (1.34 → 2.58 BPM), together with subject 46 (0.48 → 2.22). |
+| O-08 | **Subject 24** gives 4.19 on Mehroz's laptop vs 4.03 in our CSV | On 17 Nov Abeera's laptop also gave 4.03 (same as Dua's), so Mehroz's local `subject24/ground_truth.txt` probably differs. Mehroz should compare his file with Abeera's. Subject 24 also changed the most after cleaning (1.34 → 2.58 BPM), together with subject 46 (0.48 → 2.22). |
 | O-09 | **Remove the face images from old Git history** | Needs `git filter-repo` and a force push; everyone must clone again afterwards. Team must agree first. |
