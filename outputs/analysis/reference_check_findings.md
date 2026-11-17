@@ -328,3 +328,21 @@ Mean error video vs OLD wave:   20.15
 Mean error video vs FIXED wave: 5.16
 Mean error video vs file:       3.64
 ```
+
+---
+
+## Addendum: reproduction and failure figures (17 Nov 2026, second machine)
+
+**Reproduction.** `rppg_frozen.py` was re-run on a second laptop (macOS, Python 3.15, pandas 3.1) on the 12 subjects whose videos were downloaded (5, 16, 17, 18, 34, 35, 36, 38, 39, 41, 42, 49). All 415 windows match `outputs/frozen/windows.csv` exactly (difference 0.0 for video, wave and file HR). `analyze_frozen.py` on the official ground-truth files reproduces `overall.csv`, `per_subject.csv` and `windows_analysis.csv` byte for byte.
+
+**One mismatch.** `compare_wave_methods.py` reproduces every row except **subject24** (for example, count_vs_file is 4.19 instead of 4.03). The script logic was not changed, so the local `DATASET_2/subject24/ground_truth.txt` may differ from the official file, or the CSV came from an earlier version of the script. Please check.
+
+**Failure figures** (`inspect_failures.py`, kept locally, not committed: they show faces):
+
+| Subject | What the figure shows | Likely cause |
+|---|---|---|
+| subject38 | Face drifts slowly by about 32 px over the video (fixed box); forehead box sits on the hair fringe; skin brightness falls from 130 to 115. Video misses beats and is about 10 BPM low. | Slow drift + bad forehead region |
+| subject41 | Sudden head movements at about 10, 27 and 60 s (up to 100 px) with brightness jumps; cheek boxes sit on the glasses. The wave reference also counts notch peaks. | Movement + glasses; reference also unreliable |
+| subject39 | Face steady (under 11 px). Wave counter marks the dicrotic notch as beats (visible in the zoom). | Confirms the wave bug; the video error at 11–25 s is not caused by movement |
+
+**Dataset note** (from the UBFC readme and Agreement.xlsx): the faces of subjects 21 and 27 must not appear in any publication, presentation or report. The dataset authors evaluated against HR from the contact PPG **wave**, not the HR numbers in the file.
