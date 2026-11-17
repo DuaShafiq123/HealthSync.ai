@@ -12,6 +12,7 @@ services:
         required: false
     environment:
       SCRIBE_DATA_DIR: /app/data
+      SCRIBE_PRELOAD: "true"
       SCRIBE_ERP_URL: ${SCRIBE_ERP_URL:-http://erp:8091/fhir}
     volumes:
       - scribe-data:/app/data

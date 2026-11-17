@@ -25,7 +25,9 @@ docker compose up -d --build
 - **Doctor's screen:** http://localhost:8090
 - **Hospital dashboard (demo):** http://localhost:8091
 
-Both containers restart by themselves whenever Docker starts, so the scribe is ready before the first patient of the day. The first recording downloads the Whisper model (about 1.6 GB). It is kept in the `models` volume, so this happens only once.
+Both containers restart by themselves whenever Docker starts, so the scribe is ready before the first patient of the day. On start-up the scribe loads the Whisper model in the background. The very first start downloads it (about 1.6 GB for `large-v3-turbo`; on a slow connection this can take hours, so do it the day before). After that it stays in the `models` volume. `http://localhost:8090/healthz` shows `"speech_model_ready": true` when it is ready.
+
+If Docker or the computer restarts in the middle of a consultation, the visit shows "Interrupted by a restart". The recording is kept, so the doctor presses **Try again**.
 
 Browsers allow the microphone only on `localhost` or over HTTPS. If doctors use other computers to reach the scribe, put it behind HTTPS (for example a hospital reverse proxy).
 

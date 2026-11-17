@@ -189,3 +189,23 @@ def test_webhook_mode_sends_our_json(tmp_path):
     url, body, headers = got[0]
     assert body["patient"]["mrn"] == "MR-1001" and "dialogue" not in body["note"]
     assert headers["Authorization"] == "Bearer s3cret"
+
+
+def test_visit_interrupted_by_restart_can_be_retried(tmp_path, erp):
+    class Crashes:
+        def transcribe(self, path):
+            raise SystemExit("container stopped")         # not caught by the app, like a real kill
+
+    c = make_scribe(tmp_path, erp, transcriber=Crashes())
+    sid = start_visit(c).json()["id"]
+    try:
+        upload(c, sid)
+    except BaseException:
+        pass
+    assert c.get(f"/api/sessions/{sid}").json()["status"] == "transcribing"   # stuck, as after a crash
+
+    c2 = make_scribe(tmp_path, erp)                       # restart with a working speech model
+    s = c2.get(f"/api/sessions/{sid}").json()
+    assert (s["status"], s["error"]) == ("failed", "Interrupted by a restart. Press Try again.")
+    assert c2.post(f"/api/sessions/{sid}/retry").status_code == 202
+    assert c2.get(f"/api/sessions/{sid}").json()["status"] == "review"

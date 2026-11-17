@@ -28,6 +28,8 @@ class Settings:
     erp_token: str = field(default_factory=lambda: os.environ.get("SCRIBE_ERP_TOKEN", ""))
     # Audio is deleted as soon as it is transcribed, unless this is switched on
     keep_audio: bool = field(default_factory=lambda: _bool("SCRIBE_KEEP_AUDIO", False))
+    # Load the speech model at start-up instead of on the first recording (on in docker-compose)
+    preload: bool = field(default_factory=lambda: _bool("SCRIBE_PRELOAD", False))
     max_audio_mb: int = field(default_factory=lambda: int(os.environ.get("SCRIBE_MAX_AUDIO_MB", "100")))
     hospital_system: str = field(default_factory=lambda: os.environ.get("SCRIBE_MRN_SYSTEM", "urn:healthsync:mrn"))
     timezone: str = field(default_factory=lambda: os.environ.get("SCRIBE_TIMEZONE", "Asia/Karachi"))

@@ -52,6 +52,20 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
                 lazy[name] = make_transcriber(settings) if name == "transcriber" else make_note_writer(settings)
             return lazy[name]
 
+    if n := store.recover_interrupted():
+        log.warning("%d consultation(s) were interrupted by a restart and can be retried", n)
+
+    if settings.preload:
+        # Download and load the speech model when the container starts, so the first
+        # patient of the day does not wait for it.
+        def preload():
+            try:
+                get("transcriber")
+                log.info("speech model ready")
+            except Exception:
+                log.exception("speech model preload failed; it will be retried on the first recording")
+        threading.Thread(target=preload, daemon=True).start()
+
     def must_get(sid: str) -> SessionView:
         s = store.get(sid)
         if s is None:
@@ -98,7 +112,7 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
     @app.get("/healthz")
     def healthz():
         return {"ok": True, "transcriber": settings.transcriber, "note_writer": settings.note_writer,
-                "erp_mode": settings.erp_mode}
+                "erp_mode": settings.erp_mode, "speech_model_ready": lazy["transcriber"] is not None}
 
     @app.post("/api/sessions", status_code=201)
     def create_session(body: SessionCreate) -> SessionView:

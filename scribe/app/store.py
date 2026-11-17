@@ -64,6 +64,19 @@ class Store:
             self._db.execute(f"UPDATE sessions SET {cols} WHERE id = ?", (*fields.values(), sid))
             self._db.commit()
 
+    def recover_interrupted(self) -> int:
+        """After a restart, work that was in progress is gone. Mark it so the doctor can retry.
+        The recording is still on disk (it is deleted only after a transcript is saved)."""
+        with self._lock:
+            n = self._db.execute(
+                "UPDATE sessions SET status = 'failed', error = 'Interrupted by a restart. Press Try again.'"
+                " WHERE status IN ('transcribing', 'drafting')").rowcount
+            n += self._db.execute(
+                "UPDATE sessions SET status = 'send_failed',"
+                " error = 'Interrupted while sending. Approve again to resend.' WHERE status = 'sending'").rowcount
+            self._db.commit()
+        return n
+
     def audio_path_for(self, sid: str, suffix: str) -> str:
         return os.path.join(self.audio_dir, f"{sid}{suffix}")
 
