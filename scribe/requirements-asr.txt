@@ -1,2 +1,5 @@
 # Speech-to-text (Whisper on CPU, no PyTorch). Installed in the Docker image.
 faster-whisper>=1.1,<2
+# faster-whisper 1.2.1 passes metadata_errors to av.open(); newer PyAV releases reject it
+# ("TypeError: open() got an unexpected keyword argument 'metadata_errors'"). 16.1 tested OK.
+av>=12,<17
