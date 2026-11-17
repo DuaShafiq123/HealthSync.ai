@@ -24,14 +24,12 @@ PASS_MAE = 5.0                   # reporting threshold for "pass" (agree this wi
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Look for the dataset in these places (first one that exists is used)
-DATA_DIR_CANDIDATES = [
-    os.path.join(SCRIPT_DIR, "DATASET_2"),   # Dua's laptop
-    r"C:\data\DATASET_2",                    # Abeera's laptop
-]
-DATA_DIR = next((d for d in DATA_DIR_CANDIDATES if os.path.isdir(d)), None)
-if DATA_DIR is None:
-    print("Dataset folder not found. Checked:", DATA_DIR_CANDIDATES)
+# Dataset folder: DATASET_2 inside the project folder by default.
+# If it is somewhere else on your laptop, set the HEALTHSYNC_DATA environment variable.
+DATA_DIR = os.environ.get("HEALTHSYNC_DATA", os.path.join(SCRIPT_DIR, "DATASET_2"))
+if not os.path.isdir(DATA_DIR):
+    print("Dataset folder not found:", DATA_DIR)
+    print("Put DATASET_2 in the project folder, or set HEALTHSYNC_DATA to its path.")
     raise SystemExit
 print("Using dataset folder:", DATA_DIR)
 

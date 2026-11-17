@@ -137,14 +137,16 @@ Subjects 25, 26, 38, 45, 18, a little 17 and 41, and now **39** (small).
 
 ## 6. Next steps
 
+*(Updated 17 Nov 2026. Open decisions are also listed in `decision.md`.)*
+
 - [x] Check how `rppg_frozen.py` counts wave peaks: NOT the same as the snippet first written here (see section 2, corrected).
-- [ ] Use one file-HR rule everywhere: `analyze_frozen.py` uses 40–220 BPM and keeps any window with at least one good sample; `check_subject.py` and `compare_wave_methods.py` use 40–180 BPM and need 80% good samples.
-- [ ] Discuss the fix with the team and supervisor before changing anything (the pipeline is frozen).
-- [ ] Write `clean_references.py`: apply the wave fix + the file 40–180 rule to all 41 subjects and save to `outputs/frozen_cleaned/` (the frozen results stay unchanged).
-- [ ] Needs all 41 `ground_truth.txt` files (text only, no videos).
-- [ ] Safety check: good subjects should barely change after the fix.
-- [ ] Report a table with old results and cleaned results side by side.
-- [ ] Failure analysis for group (c) using `inspect_failures.py` (locally, images not pushed), including subject 39 at about 11–55 s.
+- [ ] Discuss the fix with the team and supervisor before changing anything (the pipeline is frozen). **Still needed before quoting the cleaned numbers.**
+- [x] Write `clean_references.py`: apply the wave fix + the file 40–180 rule to all subjects and save to `outputs/frozen_cleaned/` (the frozen results stay unchanged). Done 17 Nov (Abeera).
+- [x] Needs all `ground_truth.txt` files (text only, no videos). Done: 42 subjects including subject4, no subject missing.
+- [x] Safety check: good subjects should barely change after the fix. For the 28 subjects whose error vs the old wave was below 2 BPM, the error changed by 0.37 BPM on average. No subject changed from pass to fail or back (5 BPM line). Largest changes: **subject46 (0.48 → 2.22)** and **subject24 (1.34 → 2.58)**. Look at these two.
+- [x] Report a table with old results and cleaned results side by side: `outputs/frozen_cleaned/overall_cleaned.csv` and the README.
+- [ ] Use one file-HR rule everywhere: `analyze_frozen.py` still uses 40–220 BPM and keeps any window with at least one good sample. The main results (`clean_references.py`) use 40–180 BPM and need 80% good samples. Either update `analyze_frozen.py` or keep `outputs/analysis/` as history only.
+- [ ] Failure analysis for group (c) using `inspect_failures.py` (locally, images not pushed). Done for 38, 41 and 39 (see the addendum at the end). Still to do: **26, 25, 18, 45**.
 - [ ] Future method improvements: test on another dataset (e.g. PURE), then run UBFC only once at the end.
 
 ---

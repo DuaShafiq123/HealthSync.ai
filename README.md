@@ -21,20 +21,24 @@ Debug subjects (used to build the method, so not a fair test): `subject1, 3, 8, 
 
 ## Results
 
-These come from `outputs/analysis/overall.csv`. Unseen subjects = 36 UBFC subjects plus a separate run of subject4.
+These come from `outputs/frozen_cleaned/overall_cleaned.csv` (made by `clean_references.py`).
+The video heart rate is the frozen result and was **not** recalculated. Only the reference (the "true" heart rate) was cleaned: a beat-counting bug in the oximeter wave was fixed and impossible file values were removed. See `decision.md` (D-14 to D-17) and `outputs/analysis/reference_check_findings.md`.
 
-| Subjects | Reference | MAE (BPM) | RMSE | Pearson r | Windows within 5 BPM |
+| Subjects | Reference | MAE (BPM) | RMSE | Pearson r | Subjects with MAE ≤ 5 BPM |
 |---|---|---|---|---|---|
-| Unseen (37) | oximeter wave | **3.62** | 6.61 | 0.93 | 78.8% |
-| Unseen (37) | file HR, cleaned | 3.47 | 5.43 | 0.95 | 76.9% |
-| Unseen (37) | wave, only where the two references agree | 2.83 | 5.13 | 0.96 | 82.4% |
-| Debug (5) | oximeter wave | 0.90 | 1.29 | 0.98 | 100% |
+| Unseen (37) | oximeter wave, original | 3.62 | 6.61 | 0.93 | 28 of 37 |
+| Unseen (37) | **oximeter wave, cleaned (main result)** | **2.86** | 4.96 | 0.96 | 29 of 37 |
+| Unseen (37) | oximeter wave, cleaned, simple beat count (check) | 2.75 | 4.84 | 0.96 | 29 of 37 |
+| Unseen (36) | file HR, cleaned | 3.40 | 5.38 | 0.95 | 28 of 36 |
+| Debug (5) | oximeter wave, cleaned | 0.76 | 1.15 | 0.98 | 5 of 5 |
 
-For half of the unseen subjects, the average error is about 1.4 BPM or less (median of per-subject MAE). Most of the overall error comes from a few subjects. The references themselves are sometimes wrong, so read `outputs/analysis/reference_check_findings.md` before quoting any number.
+- File HR row has 36 subjects because subject20 has no window with enough good file values.
+- For half of the unseen subjects, the average error is 1.25 BPM or less (median of per-subject MAE). Most of the overall error comes from a few subjects (26, 25, 18, 38, 41, 45).
+- `outputs/analysis/` is the **older** analysis made by `analyze_frozen.py` (file rule 40–220 BPM). It is kept for history only; quote the numbers above.
 
 ## Setup
 
-Requires Python 3.10 or newer.
+Tested with Python 3.14.3 (Windows). The results were also reproduced with Python 3.15 on macOS. `requirements.txt` has the exact library versions.
 
 ```bash
 python -m venv .venv
@@ -63,17 +67,23 @@ python rppg_frozen.py
 python rppg_frozen.py --subjects subject4 --out outputs/frozen_subject4   # one subject only
 
 # 2. Metrics, reference cleaning and plots  ->  outputs/analysis/
-python analyze_frozen.py --windows outputs/frozen/windows.csv outputs/frozen_subject4/windows.csv
+python analyze_frozen.py --windows outputs/frozen/windows.csv outputs/frozen_subject4/windows.csv   # older analysis, kept for history
+
+# 2b. Join all frozen runs into one file (42 subjects)  ->  outputs/frozen_all/
+python merge_frozen_runs.py
+
+# 2c. Clean the references (MAIN results)  ->  outputs/frozen_cleaned/
+python clean_references.py
 
 # 3. Look at why a subject failed  ->  outputs/failures/   (images show faces: do NOT commit)
 python inspect_failures.py --subjects subject25 subject26 subject38
 
-# 4. Reference checks (need outputs/frozen/windows.csv + DATASET_2)
+# 4. Reference checks (need outputs/frozen_all/windows.csv + DATASET_2)
 python check_subject.py            # set SUBJECT = "..." at the top first
 python compare_wave_methods.py     # compares 4 ways of reading the oximeter wave
 ```
 
-If DATASET_2 is somewhere else, add `--root <path>` to `rppg_frozen.py`, `analyze_frozen.py` and `inspect_failures.py`. `check_subject.py` and `compare_wave_methods.py` always look for `DATASET_2/` inside the project folder.
+If DATASET_2 is somewhere else, add `--root <path>` to `rppg_frozen.py`, `analyze_frozen.py` and `inspect_failures.py`. For `clean_references.py`, set the `HEALTHSYNC_DATA` environment variable first (PowerShell: `$env:HEALTHSYNC_DATA = "C:\path\to\DATASET_2"`). `check_subject.py` and `compare_wave_methods.py` always look for `DATASET_2/` inside the project folder.
 
 ## Files
 
@@ -81,14 +91,16 @@ If DATASET_2 is somewhere else, add `--root <path>` to `rppg_frozen.py`, `analyz
 |---|---|
 | `rppg_frozen.py` | The frozen pipeline: video → heart rate per window, plus both references |
 | `rppg_step1_3.py` | Shared helpers: reading the video, loading ground truth, face box, skin regions |
-| `analyze_frozen.py` | MAE / RMSE / r, file-HR cleaning, per-subject table, Bland-Altman plot |
+| `merge_frozen_runs.py` | Joins all frozen runs into one file (42 subjects): `outputs/frozen_all/` |
+| `clean_references.py` | Recalculates the references with the fixed rules and makes the **main results**: `outputs/frozen_cleaned/` |
+| `analyze_frozen.py` | Older analysis (MAE / RMSE / r, file rule 40–220 BPM, Bland-Altman plot); kept for history |
 | `inspect_failures.py` | One diagnostic figure per subject: face movement, brightness, counted beats |
 | `check_subject.py` | Detailed reference check for one subject |
 | `compare_wave_methods.py` | Compares 4 ways of counting beats in the oximeter wave |
 | `explore.ipynb` | Early exploration notebook (subject1) |
-| `test_cv.py` | Quick check that OpenCV and the face detector work |
 | `outputs/` | Committed result tables, plots and logs (no face images) |
-| `subject*_check.png` | Plots made by `check_subject.py` |
+| `outputs/reference_check/` | Plots and tables made by `check_subject.py` and `compare_wave_methods.py` |
+| `decision.md` | Every important decision, why we made it, and open questions |
 
 ## Ground rules
 
@@ -98,8 +110,10 @@ If DATASET_2 is somewhere else, add `--root <path>` to `rppg_frozen.py`, `analyz
 
 ## Open work
 
-See the "Next steps" section of `outputs/analysis/reference_check_findings.md`. In short:
-- apply one cleaning rule to both references for all subjects (`clean_references.py`)
-- use one file-HR rule everywhere (the scripts currently use 40–220 vs 40–180 BPM)
-- find out why group (c) subjects fail
+Open decisions are listed at the end of `decision.md`. In short:
+- get the supervisor's approval for the reference fixes before quoting 2.86 BPM as the main result
+- decide the extra file rule (value 127 and 10 s after a dropout) and the 5 BPM pass line
+- `analyze_frozen.py` still uses the old file rule (40–220 BPM); the main results use 40–180
+- check subject24's `ground_truth.txt` against the official file
+- find out why group (c) subjects fail (26, 25, 18, 38, 41, 45, 39)
 - test on a second dataset (for example PURE) before any method change

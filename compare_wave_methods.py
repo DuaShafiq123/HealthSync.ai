@@ -22,7 +22,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(SCRIPT_DIR, "outputs", "reference_check")
 os.makedirs(OUT_DIR, exist_ok=True)
 
-windows = pd.read_csv(os.path.join(SCRIPT_DIR, "outputs", "frozen", "windows.csv"))
+windows = pd.read_csv(os.path.join(SCRIPT_DIR, "outputs", "frozen_all", "windows.csv"))
 ids = windows["subject"].astype(str).str.replace("subject", "", regex=False).str.strip()
 
 

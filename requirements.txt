@@ -1,6 +1,7 @@
-opencv-python<5
-numpy
-pandas
-matplotlib
-scipy
-
+# Tested with these versions (Python 3.14.3, Windows, Nov 2026).
+# opencv-python must stay below 5: OpenCV 5.0 has no CascadeClassifier (decision D-03).
+opencv-python==4.14.0.94
+numpy==2.5.4
+pandas==3.1.1
+matplotlib==3.11.2
+scipy==1.18.1
