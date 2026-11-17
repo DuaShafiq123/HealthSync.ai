@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%227%22 fill=%22%231f4e46%22/%3E%3C/svg%3E">
+<title>HealthSync Scribe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Nastaliq+Urdu:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f7f7f5; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e4e4df;
+    --accent: #1f4e46; --accent-soft: #e6efec; --rec: #b3261e; --warn-bg: #fff6e0; --warn: #7a5300;
+    --ok: #1f6b3a; --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 Inter, system-ui, sans-serif; }
+  header { padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--card);
+           display: flex; align-items: baseline; gap: 12px; }
+  header h1 { font-size: 17px; font-weight: 600; margin: 0; }
+  header span { color: var(--muted); font-size: 13px; }
+  main { display: grid; grid-template-columns: 260px 1fr; gap: 24px; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 16px; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0 0 14px; }
+  h3 { font-size: 13px; font-weight: 600; margin: 18px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input, select, textarea { width: 100%; font: inherit; color: var(--ink); background: #fff;
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { min-height: 64px; resize: vertical; }
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 600px) { .row, .row2 { grid-template-columns: 1fr; } }
+  button { font: inherit; font-weight: 500; border-radius: 8px; padding: 9px 16px; cursor: pointer;
+           border: 1px solid var(--line); background: #fff; color: var(--ink); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.rec { background: var(--rec); border-color: var(--rec); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .consent { display: flex; gap: 10px; align-items: flex-start; margin: 16px 0; padding: 12px;
+             background: var(--accent-soft); border-radius: 8px; font-size: 14px; }
+  .consent input { width: auto; margin-top: 4px; }
+  .urdu { font-family: "Noto Nastaliq Urdu", serif; direction: rtl; line-height: 2.2; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; align-items: center; }
+  .recorder { display: flex; align-items: center; gap: 16px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--rec); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .timer { font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 500; }
+  .steps { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; }
+  .steps li { padding: 4px 10px; border-radius: 99px; background: var(--bg); color: var(--muted); }
+  .steps li.on { background: var(--accent); color: #fff; }
+  .steps li.done { background: var(--accent-soft); color: var(--accent); }
+  .warn { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+  .warn ul { margin: 4px 0 0; padding-left: 18px; }
+  .err { color: var(--rec); font-size: 14px; }
+  .ok { color: var(--ok); font-size: 14px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { padding: 8px 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 14px; }
+  .list li:hover { color: var(--accent); }
+  .list small { display: block; color: var(--muted); font-size: 12px; }
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .turn { margin: 6px 0; font-size: 14px; }
+  .turn b { color: var(--accent); font-weight: 500; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header><h1>HealthSync Scribe</h1><span>Records the consultation, drafts the note, sends it to the hospital system after you approve it</span></header>
+<main>
+  <aside class="card">
+    <h2>Recent consultations</h2>
+    <button id="newBtn" style="width:100%;margin-bottom:10px">+ New consultation</button>
+    <ul class="list" id="recent"></ul>
+  </aside>
+
+  <section>
+    <!-- 1. start -->
+    <div class="card" id="startCard">
+      <h2>New consultation</h2>
+      <div class="row2">
+        <div><label for="pName">Patient name</label><input id="pName" autocomplete="off"></div>
+        <div><label for="pMrn">MR number</label><input id="pMrn" autocomplete="off"></div>
+      </div>
+      <div class="row">
+        <div><label for="pAge">Age</label><input id="pAge" type="number" min="0" max="130"></div>
+        <div><label for="pSex">Sex</label>
+          <select id="pSex"><option value="">-</option><option value="female">Female</option>
+          <option value="male">Male</option><option value="other">Other</option></select></div>
+        <div><label for="pPhone">Phone (for follow-up)</label><input id="pPhone" autocomplete="off"></div>
+      </div>
+      <div class="row2">
+        <div><label for="doctor">Doctor</label><input id="doctor"></div>
+        <div><label for="dept">Department</label><input id="dept" placeholder="e.g. Medicine OPD"></div>
+      </div>
+      <label class="consent"><input type="checkbox" id="consent">
+        <span>The patient and I agree to record this consultation to write the medical note.
+          <span class="urdu" style="display:block">مریض نے اس گفتگو کی ریکارڈنگ کی اجازت دی ہے۔</span></span></label>
+      <div class="actions">
+        <button class="primary" id="startBtn">Start recording</button>
+        <label style="margin:0;cursor:pointer;color:var(--muted);font-size:13px">or upload a recording
+          <input type="file" id="fileIn" accept="audio/*" class="hidden"></label>
+        <span class="err" id="startErr"></span>
+      </div>
+    </div>
+
+    <!-- 2. recording -->
+    <div class="card hidden" id="recCard">
+      <h2 id="recTitle">Recording</h2>
+      <div class="recorder"><div class="dot"></div><div class="timer" id="timer">00:00</div>
+        <button class="rec" id="stopBtn">Stop and write note</button></div>
+      <p class="hint">Speak normally. Urdu, English or both are fine.</p>
+    </div>
+
+    <!-- 3. processing + review -->
+    <div class="card hidden" id="noteCard">
+      <h2 id="noteTitle"></h2>
+      <ul class="steps" id="steps"></ul>
+      <p class="err" id="noteErr"></p>
+      <div class="actions hidden" id="retryRow"><button id="retryBtn">Try again</button></div>
+
+      <div id="editor" class="hidden">
+        <div class="warn hidden" id="uncertain"><b>Please check:</b><ul></ul></div>
+        <label for="nChief">Chief complaint</label><input id="nChief">
+        <label for="nHistory">History</label><textarea id="nHistory"></textarea>
+        <label for="nSymptoms">Symptoms</label><textarea id="nSymptoms"></textarea>
+        <div class="hint">One per line: name | present or absent | duration | detail</div>
+        <label for="nExam">Examination</label><textarea id="nExam"></textarea>
+        <label for="nAssess">Assessment</label><textarea id="nAssess"></textarea>
+        <div class="hint">One per line: diagnosis | confirmed, suspected or ruled_out | ICD-10 (optional)</div>
+        <label for="nMeds">Medicines</label><textarea id="nMeds"></textarea>
+        <div class="hint">One per line: name | dose | how often | how long | instructions</div>
+        <div class="row2">
+          <div><label for="nTests">Tests ordered</label><textarea id="nTests"></textarea><div class="hint">One per line</div></div>
+          <div><label for="nAdvice">Advice</label><textarea id="nAdvice"></textarea><div class="hint">One per line</div></div>
+        </div>
+        <div class="row">
+          <div><label for="nFuDays">Follow-up in (days)</label><input id="nFuDays" type="number" min="0"></div>
+          <div style="grid-column: span 2"><label for="nFuReason">Follow-up reason</label><input id="nFuReason"></div>
+        </div>
+        <label for="nFlags">Red flags</label><textarea id="nFlags"></textarea><div class="hint">One per line</div>
+        <label for="nUrdu">Patient summary (Urdu, for the patient to take home)</label>
+        <textarea id="nUrdu" class="urdu" style="min-height:110px"></textarea>
+        <div class="actions">
+          <button id="saveBtn">Save draft</button>
+          <button class="primary" id="approveBtn">Approve and send to hospital system</button>
+          <span id="saveMsg"></span>
+        </div>
+        <details><summary>Transcript</summary><div id="dialogue"></div></details>
+      </div>
+      <div id="sentBox" class="hidden"><p class="ok" id="sentMsg"></p><button id="printBtn">Print patient summary</button></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const STEPS = [["transcribing", "Listening"], ["drafting", "Writing note"], ["review", "Your review"], ["sent", "Sent"]];
+let current = null, poll = null, recorder = null, chunks = [], t0 = 0, tick = null;
+
+function store(k, v) { try { v === undefined ? null : localStorage.setItem(k, v); return localStorage.getItem(k); } catch { return null; } }
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : `Error ${r.status}`);
+  return body;
+}
+
+function show(card) { for (const c of ["startCard", "recCard", "noteCard"]) $(c).classList.toggle("hidden", c !== card); }
+
+function lines(s) { return s.split("\n").map(x => x.trim()).filter(Boolean); }
+function cells(line, n) { const c = line.split("|").map(x => x.trim()); while (c.length < n) c.push(""); return c; }
+const orNull = v => (v === "" ? null : v);
+
+// ---------------- start ----------------
+$("doctor").value = store("doctor") || "";
+$("dept").value = store("dept") || "";
+
+function sessionBody() {
+  const age = $("pAge").value;
+  return { patient: { name: $("pName").value.trim(), mrn: $("pMrn").value.trim(),
+                      age: age === "" ? null : Number(age), sex: orNull($("pSex").value), phone: orNull($("pPhone").value.trim()) },
+           doctor: $("doctor").value.trim(), department: orNull($("dept").value.trim()), consent: $("consent").checked };
+}
+
+// Check the form BEFORE asking for the microphone, and use the values from that moment,
+// so a change during the permission prompt cannot start a different visit.
+function validForm() {
+  $("startErr").textContent = "";
+  const b = sessionBody();
+  if (!b.patient.name || !b.patient.mrn || !b.doctor) throw new Error("Enter the patient name, MR number and doctor");
+  if (!b.consent) throw new Error("Tick the consent box first");
+  return b;
+}
+
+async function createSession(b) {
+  store("doctor", b.doctor); if (b.department) store("dept", b.department);
+  return api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+}
+
+$("startBtn").onclick = async () => {
+  if ($("startBtn").disabled) return;
+  $("startBtn").disabled = true;              // no double start
+  let stream = null;
+  try {
+    const b = validForm();
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("This browser cannot record here. Open the page on localhost or HTTPS.");
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    current = await createSession(b);
+    chunks = [];
+    const type = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"].find(t => MediaRecorder.isTypeSupported(t)) || "";
+    recorder = new MediaRecorder(stream, type ? { mimeType: type } : {});
+    recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+    recorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); sendAudio(new Blob(chunks, { type: recorder.mimeType })); };
+    recorder.start(5000);
+    $("recTitle").textContent = `Recording: ${current.patient.name}`;
+    t0 = Date.now(); tick = setInterval(() => {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      $("timer").textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    }, 500);
+    show("recCard");
+  } catch (e) {
+    if (stream && !recorder?.state?.startsWith("rec")) stream.getTracks().forEach(t => t.stop());   // never leave the mic on
+    $("startErr").textContent = e.name === "NotAllowedError" ? "Microphone permission was refused" : e.message;
+  } finally { $("startBtn").disabled = false; }
+};
+
+$("stopBtn").onclick = () => { clearInterval(tick); $("stopBtn").disabled = true; recorder.stop(); };
+
+$("fileIn").onchange = async () => {
+  const f = $("fileIn").files[0]; if (!f) return;
+  try { current = await createSession(validForm()); sendAudio(f, f.name); }
+  catch (e) { $("startErr").textContent = e.message; }
+  $("fileIn").value = "";
+};
+
+async function sendAudio(blob, name) {
+  const ext = (blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm");
+  const fd = new FormData(); fd.append("audio", blob, name || `visit.${ext}`);
+  $("stopBtn").disabled = false;
+  openSession(current.id);
+  try { render(await api(`/api/sessions/${current.id}/audio`, { method: "POST", body: fd })); watch(); }
+  catch (e) { $("noteErr").textContent = `Upload failed: ${e.message}`; }
+}
+
+// ---------------- review ----------------
+function grow(t) { t.style.height = "auto"; t.style.height = `${t.scrollHeight + 2}px`; }
+document.querySelectorAll("#editor textarea").forEach(t => t.addEventListener("input", () => grow(t)));
+
+function fill(n) {
+  requestAnimationFrame(() => document.querySelectorAll("#editor textarea").forEach(grow));
+  $("nChief").value = n.chief_complaint; $("nHistory").value = n.history; $("nExam").value = n.examination;
+  $("nSymptoms").value = n.symptoms.map(s => [s.name, s.present ? "present" : "absent", s.duration || "", s.detail || ""].join(" | ")).join("\n");
+  $("nAssess").value = n.assessment.map(d => [d.name, d.certainty, d.icd10 || ""].join(" | ")).join("\n");
+  $("nMeds").value = n.medications.map(m => [m.name, m.dose || "", m.frequency || "", m.duration || "", m.instructions || ""].join(" | ")).join("\n");
+  $("nTests").value = n.tests_ordered.join("\n"); $("nAdvice").value = n.advice.join("\n"); $("nFlags").value = n.red_flags.join("\n");
+  $("nFuDays").value = n.follow_up.needed && n.follow_up.in_days != null ? n.follow_up.in_days : "";
+  $("nFuReason").value = n.follow_up.reason || ""; $("nUrdu").value = n.patient_summary_urdu;
+  const u = $("uncertain"); u.classList.toggle("hidden", !n.uncertain.length);
+  u.querySelector("ul").replaceChildren(...n.uncertain.map(t => Object.assign(document.createElement("li"), { textContent: t })));
+  $("dialogue").replaceChildren(...n.dialogue.map(t => {
+    const p = document.createElement("p"); p.className = "turn";
+    const b = document.createElement("b"); b.textContent = t.speaker === "doctor" ? "Doctor: " : t.speaker === "patient" ? "Patient: " : "Other: ";
+    p.append(b, t.text); return p;
+  }));
+}
+
+function collect() {
+  const days = $("nFuDays").value;
+  const certainty = c => (["confirmed", "suspected", "ruled_out"].includes(c) ? c : "suspected");
+  return {
+    chief_complaint: $("nChief").value.trim(), history: $("nHistory").value.trim(), examination: $("nExam").value.trim(),
+    symptoms: lines($("nSymptoms").value).map(l => { const [name, p, duration, detail] = cells(l, 4);
+      return { name, present: !/^(absent|no|denied)$/i.test(p), duration: orNull(duration), detail: orNull(detail) }; }),
+    assessment: lines($("nAssess").value).map(l => { const [name, c, icd10] = cells(l, 3); return { name, certainty: certainty(c), icd10: orNull(icd10) }; }),
+    medications: lines($("nMeds").value).map(l => { const [name, dose, frequency, duration, instructions] = cells(l, 5);
+      return { name, dose: orNull(dose), frequency: orNull(frequency), duration: orNull(duration), instructions: orNull(instructions) }; }),
+    tests_ordered: lines($("nTests").value), advice: lines($("nAdvice").value), red_flags: lines($("nFlags").value),
+    follow_up: { needed: days !== "", in_days: days === "" ? null : Number(days), reason: orNull($("nFuReason").value.trim()) },
+    patient_summary_urdu: $("nUrdu").value.trim(),
+    uncertain: [...$("uncertain").querySelectorAll("li")].map(li => li.textContent),
+    dialogue: current?.note?.dialogue || [],
+  };
+}
+
+async function save() {
+  current = await api(`/api/sessions/${current.id}/note`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(collect()) });
+}
+
+$("saveBtn").onclick = async () => {
+  try { await save(); $("saveMsg").className = "ok"; $("saveMsg").textContent = "Saved"; }
+  catch (e) { $("saveMsg").className = "err"; $("saveMsg").textContent = e.message; }
+};
+$("approveBtn").onclick = async () => {
+  $("approveBtn").disabled = true;
+  try { await save(); render(await api(`/api/sessions/${current.id}/approve`, { method: "POST" })); }
+  catch (e) { $("saveMsg").className = "err"; $("saveMsg").textContent = e.message; }
+  $("approveBtn").disabled = false; loadRecent();
+};
+$("retryBtn").onclick = async () => {
+  try { render(await api(`/api/sessions/${current.id}/retry`, { method: "POST" })); watch(); }
+  catch (e) { $("noteErr").textContent = e.message; }
+};
+$("printBtn").onclick = () => {
+  const w = window.open("", "_blank");
+  const d = w.document;
+  d.title = "Patient summary";
+  const h = d.createElement("h2"); h.textContent = `${current.patient.name} (${current.patient.mrn})`;
+  const p = d.createElement("p"); p.textContent = current.note.patient_summary_urdu;
+  p.style.cssText = "direction:rtl;font-size:20px;line-height:2.2;font-family:'Noto Nastaliq Urdu',serif";
+  d.body.append(h, p); w.print();
+};
+
+function render(s) {
+  current = s;
+  $("noteTitle").textContent = `${s.patient.name} · ${s.patient.mrn} · ${s.doctor}`;
+  const idx = STEPS.findIndex(([k]) => k === (s.status === "sending" || s.status === "send_failed" ? "review" : s.status));
+  $("steps").replaceChildren(...STEPS.map(([k, label], i) => {
+    const li = document.createElement("li"); li.textContent = label;
+    li.className = i < idx || s.status === "sent" ? "done" : i === idx ? "on" : ""; return li;
+  }));
+  $("noteErr").textContent = s.error || "";
+  $("retryRow").classList.toggle("hidden", s.status !== "failed");
+  const editable = s.status === "review" || s.status === "send_failed";
+  $("editor").classList.toggle("hidden", !editable);
+  $("sentBox").classList.toggle("hidden", s.status !== "sent");
+  if (s.status === "sent") $("sentMsg").textContent = `Sent to the hospital system (${s.erp_reference}).`;
+  if (editable && s.note && !$("editor").dataset.filled) { fill(s.note); $("editor").dataset.filled = "1"; }
+}
+
+function watch() {
+  clearInterval(poll);
+  poll = setInterval(async () => {
+    const s = await api(`/api/sessions/${current.id}`).catch(() => null);
+    if (!s) return;
+    render(s);
+    if (!["transcribing", "drafting", "sending"].includes(s.status)) { clearInterval(poll); loadRecent(); }
+  }, 2000);
+}
+
+async function openSession(id) {
+  clearInterval(poll); delete $("editor").dataset.filled; $("saveMsg").textContent = "";
+  show("noteCard");
+  render(await api(`/api/sessions/${id}`));
+  if (["transcribing", "drafting", "sending", "waiting_for_audio"].includes(current.status)) watch();
+}
+
+async function loadRecent() {
+  const items = await api("/api/sessions?limit=30").catch(() => []);
+  const label = { waiting_for_audio: "not recorded", transcribing: "listening", drafting: "writing", review: "needs review",
+                  sending: "sending", sent: "sent", send_failed: "not sent", failed: "failed" };
+  $("recent").replaceChildren(...items.map(s => {
+    const li = document.createElement("li"); li.textContent = s.patient.name;
+    const sm = document.createElement("small");
+    sm.textContent = `${new Date(s.created_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })} · ${label[s.status]}`;
+    li.append(sm); li.onclick = () => openSession(s.id); return li;
+  }));
+}
+
+$("newBtn").onclick = () => { clearInterval(poll); current = null;
+  for (const id of ["pName", "pMrn", "pAge", "pPhone"]) $(id).value = ""; $("pSex").value = ""; $("consent").checked = false;
+  show("startCard"); };
+loadRecent();
+</script>
+</body>
+</html>

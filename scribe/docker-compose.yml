@@ -1,0 +1,40 @@
+# Start everything:   docker compose up -d --build
+# Doctor's screen:     http://localhost:8090
+# Hospital dashboard:  http://localhost:8091   (demo ERP; replace with the real system, see README)
+# Both restart on their own when the computer or Docker starts again.
+services:
+  scribe:
+    build: .
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090"]
+    ports: ["8090:8090"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SCRIBE_DATA_DIR: /app/data
+      SCRIBE_ERP_URL: ${SCRIBE_ERP_URL:-http://erp:8091/fhir}
+    volumes:
+      - scribe-data:/app/data
+      - models:/models            # Whisper model downloads once and stays here
+    depends_on: [erp]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  erp:
+    build: .
+    command: ["uvicorn", "erp_mock.main:app", "--host", "0.0.0.0", "--port", "8091"]
+    ports: ["8091:8091"]
+    environment:
+      ERP_DB: /app/data/erp.db
+    volumes:
+      - erp-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  scribe-data:
+  erp-data:
+  models:

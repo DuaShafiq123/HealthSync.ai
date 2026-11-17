@@ -1,0 +1,9 @@
+.venv/
+data/
+.env
+*.webm
+*.wav
+*.m4a
+*.mp3
+*.ogg
+.pytest_cache/

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%227%22 fill=%22%231f4e46%22/%3E%3C/svg%3E">
+<title>Hospital Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#e4e4df; --accent:#1f4e46;
+          --soft:#e6efec; --over:#b3261e; --due:#7a5300; --due-bg:#fff6e0; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 Inter, system-ui, sans-serif; }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); background:var(--card); display:flex; gap:12px; align-items:baseline; }
+  header h1 { font-size:17px; font-weight:600; margin:0; } header span { color:var(--muted); font-size:13px; }
+  main { max-width:1200px; margin:0 auto; padding:24px; display:grid; gap:20px; }
+  @media (max-width:700px) { main { padding:16px; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; overflow-x:auto; }
+  h2 { font-size:14px; font-weight:600; margin:0 0 14px; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .kpi b { display:block; font-size:26px; font-weight:500; font-variant-numeric:tabular-nums; }
+  .kpi span { color:var(--muted); font-size:13px; }
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:20px; }
+  .bars { display:flex; align-items:flex-end; gap:3px; height:120px; }
+  .bars div { flex:1; background:var(--accent); border-radius:3px 3px 0 0; min-height:2px; opacity:.85; }
+  .axis { display:flex; justify-content:space-between; color:var(--muted); font-size:12px; margin-top:6px; }
+  ol { margin:0; padding-left:20px; font-size:14px; } ol li { margin:4px 0; } ol small { color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; font-weight:500; color:var(--muted); font-size:13px; border-bottom:1px solid var(--line); padding:8px; }
+  td { border-bottom:1px solid var(--line); padding:8px; vertical-align:top; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:99px; font-size:12px; background:var(--soft); color:var(--accent); }
+  .pill.overdue { background:#fbe9e7; color:var(--over); } .pill.due { background:var(--due-bg); color:var(--due); }
+  .pill.done, .pill.cancelled { background:var(--bg); color:var(--muted); }
+  button { font:inherit; font-size:13px; border:1px solid var(--line); background:#fff; border-radius:7px; padding:4px 10px; cursor:pointer; }
+  .filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .filters button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .empty { color:var(--muted); font-size:14px; }
+</style>
+</head>
+<body>
+<header><h1>Hospital Dashboard</h1><span>Consultations received from HealthSync Scribe (demo hospital system)</span></header>
+<main>
+  <div class="kpis" id="kpis"></div>
+  <div class="card">
+    <h2>Follow-ups</h2>
+    <div class="filters" id="filters"></div>
+    <table><thead><tr><th>Due</th><th>Status</th><th>Patient</th><th>MRN</th><th>Phone</th><th>Doctor</th><th>Reason</th><th></th></tr></thead>
+      <tbody id="fu"></tbody></table>
+    <p class="empty" id="fuEmpty"></p>
+  </div>
+  <div class="card"><h2>Visits, last 30 days</h2><div class="bars" id="bars"></div><div class="axis" id="axis"></div></div>
+  <div class="grid3">
+    <div class="card"><h2>Top diagnoses</h2><ol id="diag"></ol></div>
+    <div class="card"><h2>Top medicines</h2><ol id="meds"></ol></div>
+    <div class="card"><h2>Top tests ordered</h2><ol id="tests"></ol></div>
+    <div class="card"><h2>Red flags reported</h2><ol id="flags"></ol></div>
+    <div class="card"><h2>Visits per doctor</h2><ol id="docs"></ol></div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let filter = "open";
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+
+function list(id, rows, key = "name", val = "count") {
+  $(id).replaceChildren(...(rows.length ? rows.map(r => { const li = el("li", `${r[key]} `); li.append(el("small", `(${r[val]})`)); return li; })
+                                        : [el("li", "None yet", "empty")]));
+}
+
+async function load() {
+  const a = await (await fetch("api/analytics")).json();
+  const kp = [["Visits", a.visits_total], ["Patients", a.patients_total], ["Overdue follow-ups", a.followups.overdue],
+              ["Due in 2 days", a.followups.due], ["Upcoming", a.followups.upcoming],
+              ["Follow-up attendance", a.followup_adherence_pct == null ? "–" : `${a.followup_adherence_pct}%`]];
+  $("kpis").replaceChildren(...kp.map(([l, v]) => { const d = el("div", null, "kpi"); d.append(el("b", v), el("span", l)); return d; }));
+  const max = Math.max(1, ...a.visits_per_day.map(d => d.visits));
+  $("bars").replaceChildren(...a.visits_per_day.map(d => { const b = el("div"); b.style.height = `${(d.visits / max) * 100}%`;
+    b.title = `${d.date}: ${d.visits} visits`; return b; }));
+  $("axis").replaceChildren(el("span", a.visits_per_day[0].date), el("span", a.visits_per_day.at(-1).date));
+  list("diag", a.top_diagnoses); list("meds", a.top_medications); list("tests", a.top_tests); list("flags", a.red_flags);
+  list("docs", a.visits_per_doctor, "doctor", "visits");
+
+  const all = await (await fetch("api/followups")).json();
+  const groups = { open: f => ["overdue", "due", "upcoming"].includes(f.state), overdue: f => f.state === "overdue",
+                   due: f => f.state === "due", done: f => f.state === "done", all: () => true };
+  $("filters").replaceChildren(...Object.keys(groups).map(k => { const b = el("button", `${k} (${all.filter(groups[k]).length})`, k === filter ? "on" : "");
+    b.onclick = () => { filter = k; load(); }; return b; }));
+  const rows = all.filter(groups[filter]);
+  $("fuEmpty").textContent = rows.length ? "" : "Nothing here.";
+  $("fu").replaceChildren(...rows.map(f => {
+    const tr = el("tr");
+    const status = el("td"); status.append(el("span", f.state === "overdue" ? `overdue ${f.days_overdue}d` : f.state, `pill ${f.state}`));
+    const act = el("td");
+    if (["overdue", "due", "upcoming"].includes(f.state)) {
+      const done = el("button", "Came back"); done.onclick = async () => { await fetch(`api/followups/${f.id}/done`, { method: "POST" }); load(); };
+      const cancel = el("button", "Cancel"); cancel.onclick = async () => { await fetch(`api/followups/${f.id}/cancel`, { method: "POST" }); load(); };
+      cancel.style.marginLeft = "6px"; act.append(done, cancel);
+    }
+    tr.append(el("td", f.due_date), status, el("td", f.patient), el("td", f.mrn), el("td", f.phone || "–"),
+              el("td", f.doctor), el("td", f.reason || "–"), act);
+    return tr;
+  }));
+}
+load(); setInterval(load, 15000);
+</script>
+</body>
+</html>
