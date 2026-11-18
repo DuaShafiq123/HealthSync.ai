@@ -6,7 +6,7 @@
     "transcript": "Doctor: Assalam o alaikum, batayein kya masla hai?\nPatient: Doctor sahab teen hafte se thakawat hai aur khare hone pe chakkar aata hai.\nDoctor: Seene mein dard ya saans phoolna?\nPatient: Nahi, seene mein dard nahi.\nDoctor: BP 100/60 hai. CBC karwa lein. Tablet ferrous sulphate 200 mg din mein do baar, ek mahina. Do hafte baad report ke saath aayein.",
     "expected": {
       "medications": [{"names": ["ferrous sulphate", "ferrous sulfate"], "dose": "200"}],
-      "diagnoses": [["anaemia", "anemia"]],
+      "diagnoses": [],
       "tests": [["cbc", "complete blood count", "blood count"]],
       "follow_up_days": 14,
       "red_flags": [],

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Optional, Protocol
 
 from .config import Settings
-from .models import ConsultNote, Diagnosis, FollowUp, Medication, Symptom, Turn
+from .models import ConsultNote, ConsultNoteOut, Diagnosis, FollowUp, Medication, Symptom, Turn
 
 SYSTEM_PROMPT = """You are a clinical scribe for outpatient consultations in Pakistan. You receive the \
 automatic transcript of one consultation between a doctor and a patient (sometimes a family member). \
@@ -21,7 +21,9 @@ Write the doctor's draft note. The doctor will check and edit it before it is sa
 
 Rules:
 - Write only what was actually said in the consultation. Never add a diagnosis, medicine, dose, \
-test or advice that was not said. If something was not discussed, leave that field empty.
+test or advice that was not said. If something was not discussed, leave that field empty: "" for \
+text, [] for lists, and in_days = -1 when no follow-up time was said. Never write "not specified", \
+"N/A" or "not documented".
 - If a word, number, dose or drug name is unclear or could be a transcription error, do not guess: \
 write your best reading in the note AND add a short line about it to `uncertain` so the doctor checks it.
 - Diagnoses: use "confirmed" only when the doctor clearly stated it; "suspected" when the doctor \
@@ -69,7 +71,7 @@ class ClaudeNoteWriter:
                 max_tokens=32000,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": build_user_message(transcript, context)}],
-                output_format=ConsultNote,
+                output_format=ConsultNoteOut,
                 output_config={"effort": "high"},
                 # if a safety classifier declines, retry on the fallback model inside the same call
                 betas=["server-side-fallback-2026-07-01"],
@@ -88,10 +90,10 @@ class ClaudeNoteWriter:
             raise NoteError("The model declined to write this note; please write it by hand")
         if response.stop_reason == "max_tokens":
             raise NoteError("The consultation was too long for one note; split the recording")
-        note: Optional[ConsultNote] = response.parsed_output
-        if note is None:
+        out: Optional[ConsultNoteOut] = response.parsed_output
+        if out is None:
             raise NoteError("The model returned no note")
-        return note
+        return out.to_note()
 
 
 class FakeNoteWriter:

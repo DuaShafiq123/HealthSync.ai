@@ -7,3 +7,4 @@ data/
 *.mp3
 *.ogg
 .pytest_cache/
+eval_results/

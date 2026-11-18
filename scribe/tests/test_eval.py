@@ -40,7 +40,9 @@ def test_cases_file_is_valid():
 def test_score_perfect_note():
     with open(os.path.join(HERE, "cases.json"), encoding="utf-8") as f:
         case = json.load(f)[0]                                 # matches FakeNoteWriter's consultation
-    s = score(case["expected"], FakeNoteWriter().write(case["transcript"], ""))
+    # the canned fake note carries a suspected anaemia diagnosis; the real case (correctly) has none
+    expected = {**case["expected"], "diagnoses": [["anaemia", "anemia"]]}
+    s = score(expected, FakeNoteWriter().write(case["transcript"], ""))
     assert s["meds"] == (1, 1) and s["doses"] == (1, 1) and s["extra_meds"] == []
     assert s["diagnoses"] == (1, 1) and s["tests"] == (1, 1) and s["denied"] == (1, 1)
     assert s["follow_up_ok"] and s["forbidden_found"] == []

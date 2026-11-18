@@ -80,6 +80,71 @@ class ConsultNote(BaseModel):
     dialogue: list[Turn] = []           # transcript split into doctor / patient turns
 
 
+# ---------------- the shape sent to Claude ----------------
+# The API rejects ConsultNote as "Schema is too complex" (nine Optional fields = nine unions).
+# So Claude fills this flat version: empty text "" and in_days -1 mean "not said", and
+# to_note() turns them back into None. Keep the two in step.
+class _SymptomOut(BaseModel):
+    name: str
+    present: bool
+    duration: str
+    detail: str
+
+
+class _DiagnosisOut(BaseModel):
+    name: str
+    certainty: Literal["confirmed", "suspected", "ruled_out"]
+    icd10: str
+
+
+class _MedicationOut(BaseModel):
+    name: str
+    dose: str
+    frequency: str
+    duration: str
+    instructions: str
+
+
+class _FollowUpOut(BaseModel):
+    needed: bool
+    in_days: int
+    reason: str
+
+
+class ConsultNoteOut(BaseModel):
+    chief_complaint: str
+    history: str
+    symptoms: list[_SymptomOut]
+    examination: str
+    assessment: list[_DiagnosisOut]
+    medications: list[_MedicationOut]
+    tests_ordered: list[str]
+    advice: list[str]
+    follow_up: _FollowUpOut
+    red_flags: list[str]
+    patient_summary_urdu: str
+    uncertain: list[str]
+    dialogue: list[Turn]
+
+    def to_note(self) -> ConsultNote:
+        n = lambda v: (v or "").strip() or None
+        f = self.follow_up
+        in_days = f.in_days if 0 <= f.in_days <= 3650 else None
+        return ConsultNote(
+            chief_complaint=self.chief_complaint, history=self.history,
+            symptoms=[Symptom(name=x.name, present=x.present, duration=n(x.duration), detail=n(x.detail))
+                      for x in self.symptoms],
+            examination=self.examination,
+            assessment=[Diagnosis(name=x.name, certainty=x.certainty, icd10=n(x.icd10)) for x in self.assessment],
+            medications=[Medication(name=x.name, dose=n(x.dose), frequency=n(x.frequency),
+                                    duration=n(x.duration), instructions=n(x.instructions))
+                         for x in self.medications],
+            tests_ordered=self.tests_ordered, advice=self.advice,
+            follow_up=FollowUp(needed=f.needed, in_days=in_days, reason=n(f.reason)),
+            red_flags=self.red_flags, patient_summary_urdu=self.patient_summary_urdu,
+            uncertain=self.uncertain, dialogue=self.dialogue)
+
+
 # ---------------- what the API returns ----------------
 SessionStatus = Literal[
     "waiting_for_audio", "transcribing", "drafting", "review",
