@@ -136,6 +136,10 @@
       <ul class="steps" id="steps"></ul>
       <p class="err" id="noteErr"></p>
       <div class="actions hidden" id="retryRow"><button id="retryBtn">Try again</button></div>
+      <div class="actions hidden" id="uploadRow">
+        <button class="primary" id="reuploadBtn">Try upload again</button>
+        <a id="saveRec" download>Save recording to this computer</a>
+      </div>
 
       <div id="editor" class="hidden">
         <div class="warn hidden" id="uncertain"><b>Please check:</b><ul></ul></div>
@@ -263,14 +267,32 @@ $("fileIn").onchange = async () => {
   $("fileIn").value = "";
 };
 
+// The recording is kept in memory until the server has it, so a failed upload
+// (network, size, expired login) never loses the consultation.
+let pending = null;
 async function sendAudio(blob, name) {
   const ext = (blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm");
-  const fd = new FormData(); fd.append("audio", blob, name || `visit.${ext}`);
+  pending = { sid: current.id, blob, name: name || `visit.${ext}` };
   $("stopBtn").disabled = false;
-  openSession(current.id);
-  try { render(await api(`/api/sessions/${current.id}/audio`, { method: "POST", body: fd })); watch(); }
-  catch (e) { $("noteErr").textContent = `Upload failed: ${e.message}`; }
+  await openSession(current.id).catch(() => {});
+  await uploadPending();
 }
+async function uploadPending() {
+  if (!pending) return;
+  $("uploadRow").classList.add("hidden");
+  const fd = new FormData(); fd.append("audio", pending.blob, pending.name);
+  try {
+    render(await api(`/api/sessions/${pending.sid}/audio`, { method: "POST", body: fd }));
+    pending = null; watch();
+  } catch (e) {
+    $("noteErr").textContent = `Upload failed: ${e.message}. The recording is still here.`;
+    const a = $("saveRec");
+    if (a.href) URL.revokeObjectURL(a.href);
+    a.href = URL.createObjectURL(pending.blob); a.download = pending.name;
+    $("uploadRow").classList.remove("hidden");
+  }
+}
+$("reuploadBtn").onclick = uploadPending;
 
 // ---------------- review ----------------
 function grow(t) { t.style.height = "auto"; t.style.height = `${t.scrollHeight + 2}px`; }
@@ -294,18 +316,34 @@ function fill(n) {
   }));
 }
 
+// Words the doctor may type; anything else stops the save with a message instead of
+// silently changing the clinical meaning (e.g. "Ruled out" turning into "suspected").
+const CERTAINTY = { confirmed: "confirmed", definite: "confirmed", yes: "confirmed",
+  suspected: "suspected", provisional: "suspected", likely: "suspected", probable: "suspected", possible: "suspected", "": "suspected",
+  ruled_out: "ruled_out", excluded: "ruled_out", not: "ruled_out", no: "ruled_out" };
+const PRESENT = { present: true, yes: true, y: true, positive: true, "+": true, "": true,
+  absent: false, no: false, n: false, denied: false, denies: false, none: false, negative: false, not_present: false, "-": false };
+const key = v => v.toLowerCase().replace(/[.\s-]+/g, "_").replace(/^_+|_+$/g, "");
+function pick(table, value, what, line) {
+  const k = key(value);
+  if (!(k in table)) throw new Error(`${what} "${value}" not understood in: ${line}`);
+  return table[k];
+}
+
 function collect() {
-  const days = $("nFuDays").value;
-  const certainty = c => (["confirmed", "suspected", "ruled_out"].includes(c) ? c : "suspected");
+  const days = $("nFuDays").value.trim();
+  const reason = $("nFuReason").value.trim();
   return {
     chief_complaint: $("nChief").value.trim(), history: $("nHistory").value.trim(), examination: $("nExam").value.trim(),
     symptoms: lines($("nSymptoms").value).map(l => { const [name, p, duration, detail] = cells(l, 4);
-      return { name, present: !/^(absent|no|denied)$/i.test(p), duration: orNull(duration), detail: orNull(detail) }; }),
-    assessment: lines($("nAssess").value).map(l => { const [name, c, icd10] = cells(l, 3); return { name, certainty: certainty(c), icd10: orNull(icd10) }; }),
+      return { name, present: pick(PRESENT, p, "Present/absent", l), duration: orNull(duration), detail: orNull(detail) }; }),
+    assessment: lines($("nAssess").value).map(l => { const [name, c, icd10] = cells(l, 3);
+      return { name, certainty: pick(CERTAINTY, c, "Certainty", l), icd10: orNull(icd10) }; }),
     medications: lines($("nMeds").value).map(l => { const [name, dose, frequency, duration, instructions] = cells(l, 5);
       return { name, dose: orNull(dose), frequency: orNull(frequency), duration: orNull(duration), instructions: orNull(instructions) }; }),
     tests_ordered: lines($("nTests").value), advice: lines($("nAdvice").value), red_flags: lines($("nFlags").value),
-    follow_up: { needed: days !== "", in_days: days === "" ? null : Number(days), reason: orNull($("nFuReason").value.trim()) },
+    // a reason without a date still means "follow-up needed"
+    follow_up: { needed: days !== "" || reason !== "", in_days: days === "" ? null : Number(days), reason: orNull(reason) },
     patient_summary_urdu: $("nUrdu").value.trim(),
     uncertain: [...$("uncertain").querySelectorAll("li")].map(li => li.textContent),
     dialogue: current?.note?.dialogue || [],
@@ -340,7 +378,9 @@ $("printBtn").onclick = () => {
   d.body.append(h, p); w.print();
 };
 
+let viewing = null;           // the consultation on screen; late answers for others are ignored
 function render(s) {
+  if (viewing && s.id !== viewing) return;
   current = s;
   $("noteTitle").textContent = `${s.patient.name} · ${s.patient.mrn} · ${s.doctor}`;
   const idx = STEPS.findIndex(([k]) => k === (s.status === "sending" || s.status === "send_failed" ? "review" : s.status));
@@ -360,15 +400,17 @@ function render(s) {
 function watch() {
   clearInterval(poll);
   poll = setInterval(async () => {
-    const s = await api(`/api/sessions/${current.id}`).catch(() => null);
-    if (!s) return;
+    const id = viewing;
+    const s = await api(`/api/sessions/${id}`).catch(() => null);
+    if (!s || s.id !== viewing) return;
     render(s);
     if (!["transcribing", "drafting", "sending"].includes(s.status)) { clearInterval(poll); loadRecent(); }
   }, 2000);
 }
 
 async function openSession(id) {
-  clearInterval(poll); delete $("editor").dataset.filled; $("saveMsg").textContent = "";
+  clearInterval(poll); viewing = id; delete $("editor").dataset.filled; $("saveMsg").textContent = "";
+  $("uploadRow").classList.toggle("hidden", !(pending && pending.sid === id));
   show("noteCard");
   render(await api(`/api/sessions/${id}`));
   if (["transcribing", "drafting", "sending", "waiting_for_audio"].includes(current.status)) watch();
@@ -388,7 +430,7 @@ async function loadRecent() {
 
 $("newBtn").onclick = () => { clearInterval(poll); current = null;
   for (const id of ["pName", "pMrn", "pAge", "pPhone"]) $(id).value = ""; $("pSex").value = ""; $("consent").checked = false;
-  $("history").classList.add("hidden"); show("startCard"); };
+  $("history").classList.add("hidden"); viewing = null; show("startCard"); };
 // ---------------- previous visits for this MR number ----------------
 function el(tag, text, cls) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; }
 async function showHistory() {

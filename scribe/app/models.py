@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------- what the doctor types before recording ----------------
 class Patient(BaseModel):
+    # str_strip_whitespace: " MR-1 " and "MR-1" must be the same patient everywhere
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     name: str = Field(min_length=1)
     mrn: str = Field(min_length=1, description="Hospital medical record number")
     age: Optional[int] = Field(default=None, ge=0, le=130)

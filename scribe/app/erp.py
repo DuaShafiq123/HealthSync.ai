@@ -42,9 +42,10 @@ class ErpClient:
             raise ErpError(f"Hospital system answered {r.status_code}: {r.text[:300]}")
         if self.mode == "webhook":
             try:
-                return str(r.json().get("id", "accepted"))
+                body = r.json()
             except ValueError:
                 return "accepted"
+            return str(body.get("id", "accepted")) if isinstance(body, dict) else "accepted"
         return _encounter_location(bundle, r)
 
 

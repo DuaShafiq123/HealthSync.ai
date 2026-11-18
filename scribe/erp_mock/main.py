@@ -11,6 +11,7 @@ Run:  uvicorn erp_mock.main:app --port 8091
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sqlite3
@@ -20,8 +21,6 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
-
-import time
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -71,7 +70,10 @@ class Db:
 
 def _first_identifier(res: dict) -> Optional[str]:
     ids = res.get("identifier") or []
-    return f"{ids[0].get('system')}|{ids[0].get('value')}" if ids else None
+    if isinstance(ids, dict):                 # Composition.identifier is a single Identifier
+        ids = [ids]
+    first = ids[0] if ids and isinstance(ids[0], dict) else None
+    return f"{first.get('system')}|{first.get('value')}" if first else None
 
 
 def _rewrite_refs(obj, mapping: dict):
@@ -129,10 +131,10 @@ def create_app(db_path: Optional[str] = None, today=None) -> FastAPI:
     app.middleware("http")(gate.middleware)
 
     @app.post("/api/login")
-    def login(body: Login, request: Request):
+    async def login(body: Login, request: Request):
         if not gate.code_ok(body.code):
             if gate.enabled:
-                time.sleep(1.0)
+                await asyncio.sleep(1.0)
                 raise HTTPException(401, "Wrong access code")
             return {"ok": True}
         r = JSONResponse({"ok": True})
@@ -152,25 +154,36 @@ def create_app(db_path: Optional[str] = None, today=None) -> FastAPI:
         entries = bundle.get("entry") or []
         mapping, results, plan = {}, [], []
         with db.lock:
-            # pass 1: give every entry a real id (or reuse the existing Patient/Practitioner)
-            for e in entries:
-                res = e.get("resource") or {}
-                rtype = res.get("resourceType")
-                if not rtype or e.get("request", {}).get("method") != "POST":
-                    db.db.rollback()
-                    raise HTTPException(400, "Every entry needs a resource and request.method POST")
-                ident = _first_identifier(res)
-                existing = db.find_by_identifier(rtype, ident) if e["request"].get("ifNoneExist") and ident else None
-                rid = existing or db.insert(rtype, res, ident)
-                mapping[e.get("fullUrl")] = f"{rtype}/{rid}"
-                plan.append((rid, rtype, res, existing is None))
-            # pass 2: store bodies with references pointing at the real ids
-            for rid, rtype, res, created in plan:
-                if created:
-                    db.save_body(rid, {**_rewrite_refs(res, mapping), "id": str(rid)})
-                results.append({"response": {"status": "201 Created" if created else "200 OK",
-                                             "location": f"{rtype}/{rid}/_history/1"}})
-            db.db.commit()
+            try:                              # all or nothing: any error undoes the whole bundle
+                # pass 1: give every entry a real id, or reuse the existing one (ifNoneExist)
+                for e in entries:
+                    res = e.get("resource") if isinstance(e, dict) else None
+                    rtype = res.get("resourceType") if isinstance(res, dict) else None
+                    if not rtype or (e.get("request") or {}).get("method") != "POST":
+                        raise HTTPException(400, "Every entry needs a resource and request.method POST")
+                    ident = _first_identifier(res)
+                    existing = db.find_by_identifier(rtype, ident) if e["request"].get("ifNoneExist") and ident else None
+                    rid = existing or db.insert(rtype, res, ident)
+                    mapping[e.get("fullUrl")] = f"{rtype}/{rid}"
+                    plan.append((rid, rtype, res, existing is None))
+                # pass 2: store bodies with references pointing at the real ids
+                for rid, rtype, res, created in plan:
+                    if created:
+                        db.save_body(rid, {**_rewrite_refs(res, mapping), "id": str(rid)})
+                    elif rtype == "Patient":
+                        # a returning patient: keep the newest name, phone and age
+                        old = json.loads(db.db.execute("SELECT body FROM resources WHERE id = ?",
+                                                       (rid,)).fetchone()[0])
+                        for k in ("name", "telecom", "gender", "extension"):
+                            if k in res:
+                                old[k] = res[k]
+                        db.save_body(rid, old)
+                    results.append({"response": {"status": "201 Created" if created else "200 OK",
+                                                 "location": f"{rtype}/{rid}/_history/1"}})
+                db.db.commit()
+            except BaseException:
+                db.db.rollback()
+                raise
         return JSONResponse({"resourceType": "Bundle", "type": "transaction-response", "entry": results})
 
     @app.get("/fhir/{rtype}")
@@ -261,7 +274,9 @@ def create_app(db_path: Optional[str] = None, today=None) -> FastAPI:
         per_day = Counter()
         per_doctor = Counter()
         for e in encounters:
-            d = (e.get("period", {}).get("start") or "")[:10]
+            start = e.get("period", {}).get("start")
+            # count the visit on the hospital's own date, not the UTC date
+            d = datetime.fromisoformat(start).astimezone(tz).date().isoformat() if start else ""
             if d and d >= since.isoformat():
                 per_day[d] += 1
             per_doctor[(_resource(e["participant"][0]["individual"]["reference"]).get("name") or [{}])[0]

@@ -120,7 +120,7 @@ def test_silence_fails_with_a_clear_message(tmp_path, erp):
     sid = start_visit(c).json()["id"]
     upload(c, sid)
     s = c.get(f"/api/sessions/{sid}").json()
-    assert (s["status"], s["error"]) == ("failed", "No speech was heard in the recording")
+    assert (s["status"], s["error"]) == ("failed", "No speech was heard in the recording. Please record again.")
 
 
 def test_note_failure_keeps_transcript_and_retry_works(tmp_path, erp):

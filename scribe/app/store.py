@@ -75,6 +75,25 @@ class Store:
             self._db.execute(f"UPDATE sessions SET {cols} WHERE id = ?", (*fields.values(), sid))
             self._db.commit()
 
+    def transition(self, sid: str, allowed_from: tuple[str, ...], **fields) -> bool:
+        """Change a session only if its status is still one of allowed_from, in ONE statement.
+        Returns False if another request got there first (double approve, upload race, ...)."""
+        bad = set(fields) - set(COLUMNS)
+        if bad:
+            raise ValueError(f"unknown columns: {bad}")
+        for k in ("note", "draft_note"):
+            if isinstance(fields.get(k), ConsultNote):
+                fields[k] = fields[k].model_dump_json()
+        if isinstance(fields.get("edit_stats"), dict):
+            fields["edit_stats"] = json.dumps(fields["edit_stats"])
+        cols = ", ".join(f"{k} = ?" for k in fields)
+        marks = ", ".join("?" for _ in allowed_from)
+        with self._lock:
+            n = self._db.execute(f"UPDATE sessions SET {cols} WHERE id = ? AND status IN ({marks})",
+                                 (*fields.values(), sid, *allowed_from)).rowcount
+            self._db.commit()
+        return n == 1
+
     def recover_interrupted(self) -> int:
         """After a restart, work that was in progress is gone. Mark it so the doctor can retry.
         The recording is still on disk (it is deleted only after a transcript is saved)."""

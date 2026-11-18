@@ -11,12 +11,11 @@ Run:  uvicorn app.main:app --port 8090   (see README for Docker)
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
 from typing import Optional
-
-import time
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -88,21 +87,27 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
 
     # ---------------- background work ----------------
     def process(sid: str) -> None:
+        """Background work. Every write is conditional on the status this task expects, so a
+        late or duplicate run can never overwrite the doctor's edits or an approved note."""
         row = store.raw(sid)
+        busy = ("transcribing", "drafting")
         try:
             transcript, conf = row["transcript"], row["transcript_confidence"]
             if transcript is None:
-                store.update(sid, status="transcribing", error=None)
                 t = get("transcriber").transcribe(row["audio_path"])
                 transcript, conf = t.text, t.confidence
-                store.update(sid, transcript=transcript, transcript_confidence=conf)
+                if not store.transition(sid, ("transcribing",), transcript=transcript,
+                                        transcript_confidence=conf):
+                    return                               # someone else changed this visit meanwhile
                 if not settings.keep_audio and row["audio_path"] and os.path.exists(row["audio_path"]):
                     os.remove(row["audio_path"])
                     store.update(sid, audio_path=None)
             if not transcript.strip():
-                store.update(sid, status="failed", error="No speech was heard in the recording")
+                store.transition(sid, busy, status="failed",
+                                 error="No speech was heard in the recording. Please record again.")
                 return
-            store.update(sid, status="drafting")
+            if not store.transition(sid, busy, status="drafting"):
+                return
             s = store.get(sid)
             context = (f"department: {s.department or 'general OPD'}; "
                        f"patient age: {s.patient.age if s.patient.age is not None else 'not given'}; "
@@ -112,12 +117,13 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
                 note.uncertain.insert(0, f"Speech recognition confidence was low ({conf:.2f}). "
                                          "Check the whole note against what was said.")
             # keep the AI draft separately: comparing it with the approved note measures quality
-            store.update(sid, note=note, draft_note=note, status="review", ready_at=now_iso())
+            store.transition(sid, ("drafting",), note=note, draft_note=note, status="review",
+                             ready_at=now_iso())
         except NoteError as e:
-            store.update(sid, status="failed", error=str(e))
+            store.transition(sid, busy, status="failed", error=str(e))
         except Exception as e:                       # keep the session, show the error, allow retry
             log.exception("processing %s failed", sid)
-            store.update(sid, status="failed", error=f"{type(e).__name__}: {e}")
+            store.transition(sid, busy, status="failed", error=f"{type(e).__name__}: {e}")
 
     # ---------------- routes ----------------
     @app.get("/")
@@ -125,11 +131,11 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
         return FileResponse(os.path.join(STATIC, "index.html"))
 
     @app.post("/api/login")
-    def login(body: Login, request: Request):
+    async def login(body: Login, request: Request):
         if not gate.enabled:
             return {"ok": True}
         if not gate.code_ok(body.code):
-            time.sleep(1.0)                     # slows down guessing
+            await asyncio.sleep(1.0)            # slows down guessing without blocking a worker thread
             raise HTTPException(401, "Wrong access code")
         r = JSONResponse({"ok": True})
         r.set_cookie(COOKIE, gate.make_cookie(), max_age=MAX_AGE, httponly=True, samesite="strict",
@@ -168,50 +174,72 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
     def get_session(sid: str) -> SessionView:
         return must_get(sid)
 
+    def can_take_audio(row) -> bool:
+        """A new recording is accepted before the first one, or after a recording with no speech."""
+        if row["status"] == "waiting_for_audio":
+            return True
+        return row["status"] == "failed" and not (row["transcript"] or "").strip() and not row["audio_path"]
+
     @app.post("/api/sessions/{sid}/audio", status_code=202)
-    def upload_audio(sid: str, background: BackgroundTasks, audio: UploadFile = File(...)) -> SessionView:
-        s = must_get(sid)
-        if s.status != "waiting_for_audio":
-            raise HTTPException(409, f"This consultation already has a recording (status: {s.status})")
+    def upload_audio(sid: str, request: Request, background: BackgroundTasks,
+                     audio: UploadFile = File(...)) -> SessionView:
+        must_get(sid)
+        limit = settings.max_audio_mb * 1024 * 1024
+        if int(request.headers.get("content-length") or 0) > limit + 64 * 1024:
+            raise HTTPException(413, f"Recording is larger than {settings.max_audio_mb} MB")
+        row = store.raw(sid)
+        if not can_take_audio(row):
+            raise HTTPException(409, f"This consultation already has a recording (status: {row['status']})")
         ctype = (audio.content_type or "").split(";")[0].strip()
         suffix = AUDIO_TYPES.get(ctype) or os.path.splitext(audio.filename or "")[1].lower()
         if suffix not in set(AUDIO_TYPES.values()):
             raise HTTPException(415, f"Unsupported audio type {ctype or audio.filename!r}")
-        path = store.audio_path_for(sid, suffix)
-        limit, size = settings.max_audio_mb * 1024 * 1024, 0
-        with open(path, "wb") as f:
-            while chunk := audio.file.read(1024 * 1024):
-                size += len(chunk)
-                if size > limit:
-                    f.close()
-                    os.remove(path)
-                    raise HTTPException(413, f"Recording is larger than {settings.max_audio_mb} MB")
-                f.write(chunk)
-        if size == 0:
-            os.remove(path)
-            raise HTTPException(400, "The recording is empty")
-        store.update(sid, audio_path=path, status="transcribing", audio_at=now_iso())
+        # claim the visit first, so two uploads at the same time cannot both write the file
+        before = row["status"]
+        if not store.transition(sid, (before,), status="transcribing", transcript=None,
+                                transcript_confidence=None, error=None):
+            raise HTTPException(409, "Another recording is being uploaded for this consultation")
+        path, size = store.audio_path_for(sid, suffix), 0
+        try:
+            with open(path, "wb") as f:
+                while chunk := audio.file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > limit:
+                        raise HTTPException(413, f"Recording is larger than {settings.max_audio_mb} MB")
+                    f.write(chunk)
+            if size == 0:
+                raise HTTPException(400, "The recording is empty")
+        except BaseException:
+            if os.path.exists(path):
+                os.remove(path)
+            store.update(sid, status=before)              # give the visit back, nothing was lost
+            raise
+        store.update(sid, audio_path=path, audio_at=now_iso())
         background.add_task(process, sid)
         return store.get(sid)
 
     @app.post("/api/sessions/{sid}/retry", status_code=202)
     def retry(sid: str, background: BackgroundTasks) -> SessionView:
-        s = must_get(sid)
+        must_get(sid)
         row = store.raw(sid)
-        if s.status != "failed":
+        if row["status"] != "failed":
             raise HTTPException(409, "Only a failed consultation can be retried")
-        if row["transcript"] is None and not (row["audio_path"] and os.path.exists(row["audio_path"])):
-            raise HTTPException(409, "The recording is gone; please record again")
-        store.update(sid, status="transcribing" if row["transcript"] is None else "drafting", error=None)
+        has_text = bool((row["transcript"] or "").strip())
+        has_audio = bool(row["audio_path"] and os.path.exists(row["audio_path"]))
+        if not has_text and not has_audio:
+            raise HTTPException(409, "There is no recording to retry; please record again")
+        nxt = "drafting" if has_text else "transcribing"
+        fields = {} if has_text else {"transcript": None, "transcript_confidence": None}
+        if not store.transition(sid, ("failed",), status=nxt, error=None, **fields):
+            raise HTTPException(409, "This consultation is already being processed")
         background.add_task(process, sid)
         return store.get(sid)
 
     @app.put("/api/sessions/{sid}/note")
     def edit_note(sid: str, note: ConsultNote) -> SessionView:
         s = must_get(sid)
-        if s.status not in EDITABLE:
-            raise HTTPException(409, f"The note cannot be edited now (status: {s.status})")
-        store.update(sid, note=note)
+        if not store.transition(sid, tuple(EDITABLE), note=note):
+            raise HTTPException(409, f"The note cannot be edited now (status: {store.get(sid).status})")
         return store.get(sid)
 
     def bundle_for(s: SessionView, approved_at: str) -> dict:
@@ -236,16 +264,22 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
         edit_stats = None
         if row["draft_note"]:
             edit_stats = compare(ConsultNote.model_validate_json(row["draft_note"]), s.note)
-        store.update(sid, status="sending", approved_at=approved_at, error=None, edit_stats=edit_stats)
+        # only one approval can move the visit to "sending"; a second click or tab gets 409
+        if not store.transition(sid, tuple(EDITABLE), status="sending", approved_at=approved_at,
+                                error=None, edit_stats=edit_stats):
+            raise HTTPException(409, "This note is already being sent")
         s = store.get(sid)
         payload = {"session": s.id, "patient": s.patient.model_dump(), "doctor": s.doctor,
                    "department": s.department, "approved_at": approved_at,
                    "note": s.note.model_dump(exclude={"dialogue"})}
         try:
             ref = erp.send(bundle_for(s, approved_at), payload)
-            store.update(sid, status="sent", erp_reference=ref, sent_at=now_iso())
+            store.transition(sid, ("sending",), status="sent", erp_reference=ref, sent_at=now_iso())
         except ErpError as e:
-            store.update(sid, status="send_failed", error=str(e))
+            store.transition(sid, ("sending",), status="send_failed", error=str(e))
+        except Exception as e:                       # never leave a visit stuck in "sending"
+            log.exception("sending %s failed", sid)
+            store.transition(sid, ("sending",), status="send_failed", error=f"{type(e).__name__}: {e}")
         return store.get(sid)
 
     return app

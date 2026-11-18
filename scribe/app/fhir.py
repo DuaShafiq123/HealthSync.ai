@@ -10,9 +10,12 @@ FHIR is the standard most hospital systems (HMS / ERP / EMR) can import. One con
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import re
+import unicodedata
 import uuid
+from urllib.parse import quote
 from datetime import date, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -21,6 +24,7 @@ from .models import ConsultNote, Patient
 
 ICD10 = "http://hl7.org/fhir/sid/icd-10"
 DOCTOR_SYSTEM = "urn:healthsync:doctor"
+SESSION_SYSTEM = "urn:healthsync:scribe-session"
 VERIFICATION = {"confirmed": "confirmed", "suspected": "provisional", "ruled_out": "refuted"}
 
 
@@ -28,14 +32,31 @@ def _urn() -> str:
     return f"urn:uuid:{uuid.uuid4()}"
 
 
-def _slug(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "unknown"
+def doctor_id(name: str) -> str:
+    """Stable id for a doctor. Latin letters are kept for readability; a hash of the full name
+    keeps Urdu-script names apart (they would all become 'unknown' otherwise)."""
+    norm = " ".join(unicodedata.normalize("NFC", name).lower().split())
+    slug = re.sub(r"[^a-z0-9]+", "-", norm).strip("-")
+    digest = hashlib.sha256(norm.encode()).hexdigest()[:10]
+    return f"{slug}-{digest}" if slug else digest
 
 
-def _entry(resource: dict, method: str = "POST", if_none_exist: Optional[str] = None) -> dict:
-    req = {"method": method, "url": resource["resourceType"]}
-    if if_none_exist:
-        req["ifNoneExist"] = if_none_exist
+def _token(system: str, value: str) -> str:
+    """identifier search token for ifNoneExist: FHIR-escape , | $ \\ in the value, then URL-encode."""
+    escaped = re.sub(r"([\\,|$])", r"\\\1", value)
+    return f"identifier={quote(system, safe=':/')}|{quote(escaped, safe='')}"
+
+
+def _entry(resource: dict, ident: Optional[tuple[str, str]] = None) -> dict:
+    """POST a resource. With ident, it gets that identifier and is created only if no resource
+    with the same identifier exists, so sending the same consultation twice creates nothing new."""
+    req = {"method": "POST", "url": resource["resourceType"]}
+    if ident:
+        system, value = ident
+        idt = {"system": system, "value": value}
+        # Composition.identifier is a single Identifier in R4; elsewhere it is a list
+        resource["identifier"] = idt if resource["resourceType"] == "Composition" else [idt]
+        req["ifNoneExist"] = _token(system, value)
     return {"fullUrl": _urn(), "resource": resource, "request": req}
 
 
@@ -56,20 +77,19 @@ def build_bundle(*, patient: Patient, doctor: str, department: Optional[str], no
     # Follow-up dates count from the visit's date in the hospital's own time zone, not UTC:
     # a visit at 1 am in Karachi is still "yesterday" in UTC.
     today = today or datetime.fromisoformat(approved_at).astimezone(ZoneInfo(tz)).date()
+    sid = lambda kind: (SESSION_SYSTEM, f"{session_id}/{kind}")  # noqa: E731
     p = _entry({
         "resourceType": "Patient",
-        "identifier": [{"system": mrn_system, "value": patient.mrn}],
         "name": [{"text": patient.name}],
         **({"gender": patient.sex if patient.sex != "other" else "other"} if patient.sex else {}),
         **({"telecom": [{"system": "phone", "value": patient.phone}]} if patient.phone else {}),
         **({"extension": [{"url": "urn:healthsync:age-at-visit", "valueInteger": patient.age}]}
            if patient.age is not None else {}),
-    }, if_none_exist=f"identifier={mrn_system}|{patient.mrn}")
+    }, (mrn_system, patient.mrn))
     dr = _entry({
         "resourceType": "Practitioner",
-        "identifier": [{"system": DOCTOR_SYSTEM, "value": _slug(doctor)}],
         "name": [{"text": doctor}],
-    }, if_none_exist=f"identifier={DOCTOR_SYSTEM}|{_slug(doctor)}")
+    }, (DOCTOR_SYSTEM, doctor_id(doctor)))
     pat_ref, dr_ref = {"reference": p["fullUrl"]}, {"reference": dr["fullUrl"]}
 
     enc = _entry({
@@ -77,18 +97,17 @@ def build_bundle(*, patient: Patient, doctor: str, department: Optional[str], no
         "status": "finished",
         "class": {"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "AMB",
                   "display": "ambulatory"},
-        "identifier": [{"system": "urn:healthsync:scribe-session", "value": session_id}],
         "subject": pat_ref,
         "participant": [{"individual": dr_ref}],
         "period": {"start": encounter_start, "end": approved_at},
         **({"serviceType": {"text": department}} if department else {}),
         **({"reasonCode": [{"text": note.chief_complaint}]} if note.chief_complaint else {}),
-    })
+    }, sid("encounter"))
     enc_ref = {"reference": enc["fullUrl"]}
     common = {"subject": pat_ref, "encounter": enc_ref}
     entries = [p, dr, enc]
 
-    for d in note.assessment:
+    for i, d in enumerate(note.assessment):
         code = {"text": d.name}
         if d.icd10:
             code["coding"] = [{"system": ICD10, "code": d.icd10, "display": d.name}]
@@ -100,26 +119,26 @@ def build_bundle(*, patient: Patient, doctor: str, department: Optional[str], no
             "category": [{"coding": [{
                 "system": "http://terminology.hl7.org/CodeSystem/condition-category",
                 "code": "encounter-diagnosis"}]}],
-        }))
+        }, sid(f"condition/{i}")))
 
-    for m in note.medications:
+    for i, m in enumerate(note.medications):
         entries.append(_entry({
             "resourceType": "MedicationRequest", **common, "status": "active", "intent": "order",
             "medicationCodeableConcept": {"text": m.name}, "authoredOn": approved_at,
             "requester": dr_ref, "dosageInstruction": [{"text": _dose_text(m) or m.name}],
-        }))
+        }, sid(f"medication/{i}")))
 
-    for t in note.tests_ordered:
+    for i, t in enumerate(note.tests_ordered):
         entries.append(_entry({
             "resourceType": "ServiceRequest", **common, "status": "active", "intent": "order",
             "code": {"text": t}, "authoredOn": approved_at, "requester": dr_ref,
-        }))
+        }, sid(f"test/{i}")))
 
-    for f in note.red_flags:
+    for i, f in enumerate(note.red_flags):
         entries.append(_entry({
             "resourceType": "Flag", "status": "active", "subject": pat_ref, "encounter": enc_ref,
             "category": [{"text": "red-flag"}], "code": {"text": f}, "author": dr_ref,
-        }))
+        }, sid(f"flag/{i}")))
 
     fu = note.follow_up
     if fu.needed and fu.in_days is not None:
@@ -131,7 +150,7 @@ def build_bundle(*, patient: Patient, doctor: str, department: Optional[str], no
             "participant": [{"actor": pat_ref, "status": "needs-action"},
                             {"actor": dr_ref, "status": "accepted"}],
             "extension": [{"url": "urn:healthsync:encounter", "valueReference": enc_ref}],
-        }))
+        }, sid("follow-up")))
 
     symptoms = "; ".join(
         f"{s.name}{'' if s.present else ' (denied)'}"
@@ -143,7 +162,8 @@ def build_bundle(*, patient: Patient, doctor: str, department: Optional[str], no
         ("Assessment", "; ".join(f"{d.name} ({d.certainty})" for d in note.assessment)),
         ("Medications", "; ".join(f"{m.name} {_dose_text(m)}".strip() for m in note.medications)),
         ("Tests ordered", "; ".join(note.tests_ordered)), ("Advice", "; ".join(note.advice)),
-        ("Follow-up", f"in {fu.in_days} days: {fu.reason or ''}".strip() if fu.needed and fu.in_days else ""),
+        ("Follow-up", f"in {fu.in_days} days: {fu.reason or ''}".strip() if fu.needed and fu.in_days is not None
+         else (f"needed, date not set: {fu.reason or ''}".strip() if fu.needed else "")),
         ("Red flags", "; ".join(note.red_flags)),
     ]
     comp = _entry({
@@ -155,6 +175,6 @@ def build_bundle(*, patient: Patient, doctor: str, department: Optional[str], no
             {"title": "Clinical note", "text": _div(sections)},
             {"title": "Patient instructions (Urdu)", "text": _div([("ہدایات", note.patient_summary_urdu)])},
         ],
-    })
+    }, sid("note"))
     entries.insert(3, comp)
     return {"resourceType": "Bundle", "type": "transaction", "entry": entries}
