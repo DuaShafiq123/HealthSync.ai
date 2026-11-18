@@ -18,6 +18,7 @@ class Settings:
     transcriber: str = field(default_factory=lambda: os.environ.get("SCRIBE_TRANSCRIBER", "whisper"))
     whisper_model: str = field(default_factory=lambda: os.environ.get("SCRIBE_WHISPER_MODEL", "large-v3-turbo"))
     whisper_language: str = field(default_factory=lambda: os.environ.get("SCRIBE_WHISPER_LANGUAGE", "ur"))
+    whisper_prompt: str = field(default_factory=lambda: os.environ.get("SCRIBE_WHISPER_PROMPT", "ڈاکٹر اور مریض کی گفتگو۔"))
     whisper_device: str = field(default_factory=lambda: os.environ.get("SCRIBE_WHISPER_DEVICE", "auto"))
     # "claude" (real note writing) or "fake"
     note_writer: str = field(default_factory=lambda: os.environ.get("SCRIBE_NOTE_WRITER", "claude"))

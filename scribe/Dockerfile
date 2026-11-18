@@ -9,6 +9,7 @@ RUN pip install -r requirements.txt -r requirements-asr.txt
 
 COPY app ./app
 COPY erp_mock ./erp_mock
+COPY eval ./eval
 
 # never run as root
 RUN useradd --create-home scribe && mkdir -p /app/data /models && chown -R scribe /app/data /models

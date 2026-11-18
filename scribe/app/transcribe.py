@@ -33,12 +33,17 @@ class WhisperTranscriber:
         compute = "int8" if device in ("cpu", "auto") else "float16"
         self.model = WhisperModel(settings.whisper_model, device=device, compute_type=compute)
         self.language = settings.whisper_language or None
+        self.prompt = settings.whisper_prompt
 
     def transcribe(self, audio_path: str) -> Transcript:
         segments, info = self.model.transcribe(
             audio_path, language=self.language, vad_filter=True, beam_size=5,
-            # medical words help Whisper keep English terms in English inside Urdu speech
-            initial_prompt="Doctor patient consultation. BP, sugar, ECG, CBC, tablet, mg, follow-up.")
+            # A short, neutral Urdu-script prompt keeps the output in Urdu script. Tested 18 Nov 2026:
+            # an English prompt full of medical words made large-v3-turbo write Hindi (Devanagari)
+            # script, and a long Urdu prompt with medical words leaked its words into the transcript.
+            initial_prompt=self.prompt or None,
+            # do not feed earlier text back in: stops repeated sentences on long recordings
+            condition_on_previous_text=False)
         texts, weights, probs = [], [], []
         for s in segments:
             t = s.text.strip()
