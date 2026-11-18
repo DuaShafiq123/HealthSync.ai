@@ -1,0 +1,35 @@
+# Runs the scribe's tests on every push and pull request that touches scribe/.
+# No model, API key or network service is needed: the tests use fake speech and note writers.
+name: scribe tests
+
+on:
+  push:
+    paths: ["scribe/**", ".github/workflows/scribe-tests.yml"]
+  pull_request:
+    paths: ["scribe/**", ".github/workflows/scribe-tests.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]   # the team works on Windows and macOS
+        python: ["3.11", "3.12"]
+    defaults:
+      run:
+        working-directory: scribe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: scribe/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - name: Note scoring smoke test (fake writer, no API calls)
+        run: python -m eval.note_eval --writer fake --out ${{ runner.temp }}/eval
