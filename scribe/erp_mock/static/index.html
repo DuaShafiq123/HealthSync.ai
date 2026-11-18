@@ -41,6 +41,13 @@
 <body>
 <header><h1>Hospital Dashboard</h1><span>Consultations received from HealthSync Scribe (demo hospital system)</span></header>
 <main>
+  <div class="card" id="loginCard" style="display:none">
+    <h2>Enter the access code</h2>
+    <form id="loginForm" style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="loginCode" type="password" aria-label="Access code" style="font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px">
+      <button type="submit">Open dashboard</button><span id="loginErr" style="color:var(--over)"></span>
+    </form>
+  </div>
   <div class="kpis" id="kpis"></div>
   <div class="card">
     <h2>Follow-ups</h2>
@@ -68,8 +75,22 @@ function list(id, rows, key = "name", val = "count") {
                                         : [el("li", "None yet", "empty")]));
 }
 
+async function get(path) {
+  const r = await fetch(path);
+  if (r.status === 401) { $("loginCard").style.display = ""; throw new Error("login"); }
+  $("loginCard").style.display = "none";
+  return r.json();
+}
+$("loginForm").onsubmit = async ev => {
+  ev.preventDefault();
+  const r = await fetch("api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+                                       body: JSON.stringify({ code: $("loginCode").value }) });
+  $("loginErr").textContent = r.ok ? "" : "Wrong access code";
+  if (r.ok) { $("loginCode").value = ""; load(); }
+};
+
 async function load() {
-  const a = await (await fetch("api/analytics")).json();
+  const a = await get("api/analytics");
   const kp = [["Visits", a.visits_total], ["Patients", a.patients_total], ["Overdue follow-ups", a.followups.overdue],
               ["Due in 2 days", a.followups.due], ["Upcoming", a.followups.upcoming],
               ["Follow-up attendance", a.followup_adherence_pct == null ? "–" : `${a.followup_adherence_pct}%`]];
@@ -81,7 +102,7 @@ async function load() {
   list("diag", a.top_diagnoses); list("meds", a.top_medications); list("tests", a.top_tests); list("flags", a.red_flags);
   list("docs", a.visits_per_doctor, "doctor", "visits");
 
-  const all = await (await fetch("api/followups")).json();
+  const all = await get("api/followups");
   const groups = { open: f => ["overdue", "due", "upcoming"].includes(f.state), overdue: f => f.state === "overdue",
                    due: f => f.state === "due", done: f => f.state === "done", all: () => true };
   $("filters").replaceChildren(...Object.keys(groups).map(k => { const b = el("button", `${k} (${all.filter(groups[k]).length})`, k === filter ? "on" : "");
@@ -102,7 +123,7 @@ async function load() {
     return tr;
   }));
 }
-load(); setInterval(load, 15000);
+load().catch(() => {}); setInterval(() => load().catch(() => {}), 15000);
 </script>
 </body>
 </html>

@@ -31,6 +31,8 @@ services:
     ports: ["8091:8091"]
     environment:
       ERP_DB: /app/data/erp.db
+      ERP_TOKEN: ${SCRIBE_ERP_TOKEN:-}            # the scribe must send this token
+      ERP_ACCESS_CODE: ${ERP_ACCESS_CODE:-}       # staff code for the dashboard
     volumes:
       - erp-data:/app/data
     restart: unless-stopped

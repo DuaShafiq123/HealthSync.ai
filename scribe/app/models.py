@@ -97,3 +97,6 @@ class SessionView(BaseModel):
     approved_at: Optional[str]
     erp_reference: Optional[str]
     error: Optional[str]
+    ready_at: Optional[str] = None       # when the draft was ready for review
+    sent_at: Optional[str] = None
+    edit_stats: Optional[dict] = None    # what the doctor changed in the AI draft (see edits.py)

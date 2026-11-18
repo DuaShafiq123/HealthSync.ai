@@ -18,7 +18,11 @@ from .models import ConsultNote, Patient, SessionView
 
 COLUMNS = ["id", "status", "patient", "doctor", "department", "created_at", "consent_at",
            "audio_path", "transcript", "transcript_confidence", "note", "approved_at",
-           "erp_reference", "error"]
+           "erp_reference", "error",
+           # added later; created by _migrate on older databases
+           "draft_note", "edit_stats", "audio_at", "ready_at", "sent_at"]
+LATER_COLUMNS = {"draft_note": "TEXT", "edit_stats": "TEXT", "audio_at": "TEXT",
+                 "ready_at": "TEXT", "sent_at": "TEXT"}
 
 
 def now_iso() -> str:
@@ -40,6 +44,10 @@ class Store:
                 consent_at TEXT NOT NULL, audio_path TEXT, transcript TEXT,
                 transcript_confidence REAL, note TEXT, approved_at TEXT,
                 erp_reference TEXT, error TEXT)""")
+        have = {r["name"] for r in self._db.execute("PRAGMA table_info(sessions)")}
+        for col, kind in LATER_COLUMNS.items():
+            if col not in have:
+                self._db.execute(f"ALTER TABLE sessions ADD COLUMN {col} {kind}")
         self._db.commit()
 
     # ---------------- write ----------------
@@ -57,8 +65,11 @@ class Store:
         bad = set(fields) - set(COLUMNS)
         if bad:
             raise ValueError(f"unknown columns: {bad}")
-        if "note" in fields and isinstance(fields["note"], ConsultNote):
-            fields["note"] = fields["note"].model_dump_json()
+        for k in ("note", "draft_note"):
+            if isinstance(fields.get(k), ConsultNote):
+                fields[k] = fields[k].model_dump_json()
+        if isinstance(fields.get("edit_stats"), dict):
+            fields["edit_stats"] = json.dumps(fields["edit_stats"])
         cols = ", ".join(f"{k} = ?" for k in fields)
         with self._lock:
             self._db.execute(f"UPDATE sessions SET {cols} WHERE id = ?", (*fields.values(), sid))
@@ -89,11 +100,19 @@ class Store:
         r = self.raw(sid)
         return None if r is None else _view(r)
 
-    def list(self, limit: int = 50) -> list[SessionView]:
+    def list(self, limit: int = 50, mrn: Optional[str] = None) -> list[SessionView]:
+        sql, args = "SELECT * FROM sessions", []
+        if mrn:
+            sql += " WHERE json_extract(patient, '$.mrn') = ?"
+            args.append(mrn)
         with self._lock:
-            rows = self._db.execute(
-                "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+            rows = self._db.execute(sql + " ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                                    (*args, limit)).fetchall()
         return [_view(r) for r in rows]
+
+    def rows(self) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._db.execute("SELECT * FROM sessions").fetchall()
 
 
 def _view(r: sqlite3.Row) -> SessionView:
@@ -102,4 +121,6 @@ def _view(r: sqlite3.Row) -> SessionView:
         doctor=r["doctor"], department=r["department"], created_at=r["created_at"],
         transcript=r["transcript"], transcript_confidence=r["transcript_confidence"],
         note=ConsultNote.model_validate(json.loads(r["note"])) if r["note"] else None,
-        approved_at=r["approved_at"], erp_reference=r["erp_reference"], error=r["error"])
+        approved_at=r["approved_at"], erp_reference=r["erp_reference"], error=r["error"],
+        ready_at=r["ready_at"], sent_at=r["sent_at"],
+        edit_stats=json.loads(r["edit_stats"]) if r["edit_stats"] else None)

@@ -16,12 +16,18 @@ import os
 import threading
 from typing import Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+import time
 
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
+
+from .auth import COOKIE, MAX_AGE, AccessGate
 from .config import Settings, get_settings
 from .erp import ErpClient, ErpError
+from .edits import compare
 from .fhir import build_bundle
+from .stats import summarise
 from .models import ConsultNote, SessionCreate, SessionView
 from .note import NoteError, NoteWriter, make_note_writer
 from .store import Store, now_iso
@@ -35,12 +41,20 @@ AUDIO_TYPES = {"audio/webm": ".webm", "audio/ogg": ".ogg", "audio/wav": ".wav", 
 EDITABLE = {"review", "send_failed"}
 
 
+class Login(BaseModel):
+    code: str
+
+
 def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transcriber] = None,
                note_writer: Optional[NoteWriter] = None, erp: Optional[ErpClient] = None) -> FastAPI:
     settings = settings or get_settings()
     store = Store(settings.data_dir)
     erp = erp or ErpClient(settings)
     app = FastAPI(title="HealthSync Consultation Scribe")
+    gate = AccessGate(settings.access_code)
+    app.middleware("http")(gate.middleware)
+    if not gate.enabled:
+        log.warning("SCRIBE_ACCESS_CODE is not set: anyone who can reach this port can read notes")
 
     # The speech model is big: load it once, on first use, not at start-up.
     lazy: dict = {"transcriber": transcriber, "note_writer": note_writer}
@@ -97,7 +111,8 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
             if conf is not None and conf < LOW_CONFIDENCE:
                 note.uncertain.insert(0, f"Speech recognition confidence was low ({conf:.2f}). "
                                          "Check the whole note against what was said.")
-            store.update(sid, note=note, status="review")
+            # keep the AI draft separately: comparing it with the approved note measures quality
+            store.update(sid, note=note, draft_note=note, status="review", ready_at=now_iso())
         except NoteError as e:
             store.update(sid, status="failed", error=str(e))
         except Exception as e:                       # keep the session, show the error, allow retry
@@ -109,9 +124,27 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
     def index():
         return FileResponse(os.path.join(STATIC, "index.html"))
 
+    @app.post("/api/login")
+    def login(body: Login, request: Request):
+        if not gate.enabled:
+            return {"ok": True}
+        if not gate.code_ok(body.code):
+            time.sleep(1.0)                     # slows down guessing
+            raise HTTPException(401, "Wrong access code")
+        r = JSONResponse({"ok": True})
+        r.set_cookie(COOKIE, gate.make_cookie(), max_age=MAX_AGE, httponly=True, samesite="strict",
+                     secure=request.url.scheme == "https")
+        return r
+
+    @app.post("/api/logout")
+    def logout():
+        r = JSONResponse({"ok": True})
+        r.delete_cookie(COOKIE)
+        return r
+
     @app.get("/healthz")
     def healthz():
-        return {"ok": True, "transcriber": settings.transcriber, "note_writer": settings.note_writer,
+        return {"ok": True, "access_code": gate.enabled, "transcriber": settings.transcriber, "note_writer": settings.note_writer,
                 "erp_mode": settings.erp_mode, "speech_model_ready": lazy["transcriber"] is not None}
 
     @app.post("/api/sessions", status_code=201)
@@ -122,8 +155,14 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
         return store.get(sid)
 
     @app.get("/api/sessions")
-    def list_sessions(limit: int = 50) -> list[SessionView]:
-        return store.list(min(max(limit, 1), 500))
+    def list_sessions(limit: int = 50, mrn: Optional[str] = None) -> list[SessionView]:
+        """Recent consultations; with ?mrn= only that patient's earlier visits."""
+        return store.list(min(max(limit, 1), 500), mrn=mrn.strip() if mrn else None)
+
+    @app.get("/api/stats")
+    def stats() -> dict:
+        """How the scribe is doing: turnaround times and how much doctors change the AI draft."""
+        return summarise(store.rows())
 
     @app.get("/api/sessions/{sid}")
     def get_session(sid: str) -> SessionView:
@@ -151,7 +190,7 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
         if size == 0:
             os.remove(path)
             raise HTTPException(400, "The recording is empty")
-        store.update(sid, audio_path=path, status="transcribing")
+        store.update(sid, audio_path=path, status="transcribing", audio_at=now_iso())
         background.add_task(process, sid)
         return store.get(sid)
 
@@ -193,14 +232,18 @@ def create_app(settings: Optional[Settings] = None, transcriber: Optional[Transc
         if s.status not in EDITABLE or s.note is None:
             raise HTTPException(409, f"Only a reviewed note can be approved (status: {s.status})")
         approved_at = s.approved_at or now_iso()
-        store.update(sid, status="sending", approved_at=approved_at, error=None)
+        row = store.raw(sid)
+        edit_stats = None
+        if row["draft_note"]:
+            edit_stats = compare(ConsultNote.model_validate_json(row["draft_note"]), s.note)
+        store.update(sid, status="sending", approved_at=approved_at, error=None, edit_stats=edit_stats)
         s = store.get(sid)
         payload = {"session": s.id, "patient": s.patient.model_dump(), "doctor": s.doctor,
                    "department": s.department, "approved_at": approved_at,
                    "note": s.note.model_dump(exclude={"dialogue"})}
         try:
             ref = erp.send(bundle_for(s, approved_at), payload)
-            store.update(sid, status="sent", erp_reference=ref)
+            store.update(sid, status="sent", erp_reference=ref, sent_at=now_iso())
         except ErpError as e:
             store.update(sid, status="send_failed", error=str(e))
         return store.get(sid)

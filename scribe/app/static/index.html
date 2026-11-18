@@ -62,6 +62,12 @@
   summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   .turn { margin: 6px 0; font-size: 14px; }
   .turn b { color: var(--accent); font-weight: 500; }
+  .history { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+  .history h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .history .visit { padding: 6px 0; border-top: 1px solid var(--line); cursor: pointer; }
+  .history .visit:first-of-type { border-top: 0; }
+  .history .visit small { color: var(--muted); }
+  .quality { margin-top: 14px; font-size: 12px; color: var(--muted); }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -72,9 +78,20 @@
     <h2>Recent consultations</h2>
     <button id="newBtn" style="width:100%;margin-bottom:10px">+ New consultation</button>
     <ul class="list" id="recent"></ul>
+    <div class="quality" id="quality"></div>
   </aside>
 
   <section>
+    <!-- 0. access code -->
+    <div class="card hidden" id="loginCard">
+      <h2>Enter the access code</h2>
+      <form id="loginForm" class="actions" style="margin-top:0">
+        <input id="loginCode" type="password" autocomplete="current-password" style="max-width:260px" aria-label="Access code">
+        <button class="primary" type="submit">Open scribe</button>
+        <span class="err" id="loginErr"></span>
+      </form>
+    </div>
+
     <!-- 1. start -->
     <div class="card" id="startCard">
       <h2>New consultation</h2>
@@ -93,6 +110,7 @@
         <div><label for="doctor">Doctor</label><input id="doctor"></div>
         <div><label for="dept">Department</label><input id="dept" placeholder="e.g. Medicine OPD"></div>
       </div>
+      <div class="history hidden" id="history"><h4>Previous visits</h4><div id="historyList"></div></div>
       <label class="consent"><input type="checkbox" id="consent">
         <span>The patient and I agree to record this consultation to write the medical note.
           <span class="urdu" style="display:block">مریض نے اس گفتگو کی ریکارڈنگ کی اجازت دی ہے۔</span></span></label>
@@ -162,12 +180,22 @@ function store(k, v) { try { v === undefined ? null : localStorage.setItem(k, v)
 
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
+  if (r.status === 401 && path !== "/api/login") { showLogin(); throw new Error("Enter the access code"); }
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : `Error ${r.status}`);
   return body;
 }
 
-function show(card) { for (const c of ["startCard", "recCard", "noteCard"]) $(c).classList.toggle("hidden", c !== card); }
+function show(card) { for (const c of ["loginCard", "startCard", "recCard", "noteCard"]) $(c).classList.toggle("hidden", c !== card); }
+function showLogin() { clearInterval(poll); show("loginCard"); $("loginCode").focus(); }
+$("loginForm").onsubmit = async ev => {
+  ev.preventDefault(); $("loginErr").textContent = "";
+  try {
+    await api("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ code: $("loginCode").value }) });
+    $("loginCode").value = ""; show("startCard"); loadRecent(); loadQuality();
+  } catch (e) { $("loginErr").textContent = e.message; }
+};
 
 function lines(s) { return s.split("\n").map(x => x.trim()).filter(Boolean); }
 function cells(line, n) { const c = line.split("|").map(x => x.trim()); while (c.length < n) c.push(""); return c; }
@@ -296,7 +324,7 @@ $("approveBtn").onclick = async () => {
   $("approveBtn").disabled = true;
   try { await save(); render(await api(`/api/sessions/${current.id}/approve`, { method: "POST" })); }
   catch (e) { $("saveMsg").className = "err"; $("saveMsg").textContent = e.message; }
-  $("approveBtn").disabled = false; loadRecent();
+  $("approveBtn").disabled = false; loadRecent(); loadQuality();
 };
 $("retryBtn").onclick = async () => {
   try { render(await api(`/api/sessions/${current.id}/retry`, { method: "POST" })); watch(); }
@@ -360,8 +388,37 @@ async function loadRecent() {
 
 $("newBtn").onclick = () => { clearInterval(poll); current = null;
   for (const id of ["pName", "pMrn", "pAge", "pPhone"]) $(id).value = ""; $("pSex").value = ""; $("consent").checked = false;
-  show("startCard"); };
-loadRecent();
+  $("history").classList.add("hidden"); show("startCard"); };
+// ---------------- previous visits for this MR number ----------------
+function el(tag, text, cls) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; }
+async function showHistory() {
+  const mrn = $("pMrn").value.trim();
+  const box = $("history");
+  if (!mrn) { box.classList.add("hidden"); return; }
+  const visits = (await api(`/api/sessions?limit=10&mrn=${encodeURIComponent(mrn)}`).catch(() => []))
+    .filter(v => v.note);
+  box.classList.toggle("hidden", !visits.length);
+  if (visits.length && !$("pName").value.trim()) $("pName").value = visits[0].patient.name;
+  $("historyList").replaceChildren(...visits.map(v => {
+    const d = el("div", null, "visit");
+    const n = v.note;
+    const dx = n.assessment.filter(a => a.certainty !== "ruled_out").map(a => a.name).join(", ");
+    const meds = n.medications.map(m => [m.name, m.dose].filter(Boolean).join(" ")).join(", ");
+    d.append(el("div", `${new Date(v.created_at).toLocaleDateString()} · ${v.doctor}: ${n.chief_complaint || "no complaint recorded"}`));
+    if (dx || meds) d.append(el("small", [dx && `Dx: ${dx}`, meds && `Rx: ${meds}`].filter(Boolean).join(" · ")));
+    d.onclick = () => openSession(v.id);
+    return d;
+  }));
+}
+$("pMrn").addEventListener("change", showHistory);
+
+async function loadQuality() {
+  const s = await api("/api/stats").catch(() => null);
+  $("quality").textContent = s && s.approved_with_edit_tracking
+    ? `${s.approved_with_edit_tracking} note${s.approved_with_edit_tracking === 1 ? "" : "s"} approved · ${s.approved_unchanged_pct}% without changes` : "";
+}
+
+loadRecent(); loadQuality();
 </script>
 </body>
 </html>

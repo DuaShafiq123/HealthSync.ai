@@ -20,8 +20,13 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+import time
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
+
+from app.auth import COOKIE, MAX_AGE, AccessGate
 
 DUE_WINDOW_DAYS = 2      # a follow-up within the next 2 days counts as "due"
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -78,11 +83,30 @@ def _rewrite_refs(obj, mapping: dict):
     return obj
 
 
+class Login(BaseModel):
+    code: str
+
+
 def create_app(db_path: Optional[str] = None, today=None) -> FastAPI:
     db = Db(db_path or os.environ.get("ERP_DB", "data/erp.db"))
     tz = ZoneInfo(os.environ.get("ERP_TIMEZONE", "Asia/Karachi"))
     today_fn = today or (lambda: datetime.now(tz).date())
     app = FastAPI(title="Hospital ERP (mock)")
+    # ERP_TOKEN: what the scribe sends (SCRIBE_ERP_TOKEN). ERP_ACCESS_CODE: staff login for the dashboard.
+    gate = AccessGate(os.environ.get("ERP_ACCESS_CODE", ""), (os.environ.get("ERP_TOKEN", ""),))
+    app.middleware("http")(gate.middleware)
+
+    @app.post("/api/login")
+    def login(body: Login, request: Request):
+        if not gate.code_ok(body.code):
+            if gate.enabled:
+                time.sleep(1.0)
+                raise HTTPException(401, "Wrong access code")
+            return {"ok": True}
+        r = JSONResponse({"ok": True})
+        r.set_cookie(COOKIE, gate.make_cookie(), max_age=MAX_AGE, httponly=True, samesite="strict",
+                     secure=request.url.scheme == "https")
+        return r
 
     # ---------------- FHIR ----------------
     @app.post("/fhir")

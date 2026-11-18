@@ -32,6 +32,7 @@ class Settings:
     preload: bool = field(default_factory=lambda: _bool("SCRIBE_PRELOAD", False))
     max_audio_mb: int = field(default_factory=lambda: int(os.environ.get("SCRIBE_MAX_AUDIO_MB", "100")))
     hospital_system: str = field(default_factory=lambda: os.environ.get("SCRIBE_MRN_SYSTEM", "urn:healthsync:mrn"))
+    access_code: str = field(default_factory=lambda: os.environ.get("SCRIBE_ACCESS_CODE", ""))
     timezone: str = field(default_factory=lambda: os.environ.get("SCRIBE_TIMEZONE", "Asia/Karachi"))
 
 
