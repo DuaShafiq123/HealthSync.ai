@@ -112,3 +112,22 @@ def test_erp_rejects_bad_input(erp):
     assert erp.post("/fhir", content=b"not json").status_code == 400
     assert erp.post("/api/followups/999/done").status_code == 404
     assert erp.get("/fhir/Patient/999").status_code == 404
+
+
+def test_reminders_and_whatsapp_numbers(erp):
+    from erp_mock.main import pk_whatsapp_number
+    assert [pk_whatsapp_number(p) for p in ("0300-1234567", "+92 300 1234567", "00923001234567",
+                                            "042-35761234", "", None)] == \
+        ["923001234567"] * 3 + [None, None, None]
+    note = ConsultNote(follow_up=FollowUp(needed=True, in_days=3, reason="BP check"))
+    b = build_bundle(patient=Patient(name="Ayesha", mrn="R1", phone="0300-1234567"), doctor="Dr. Omar",
+                     department=None, note=note, encounter_start="2026-11-01T09:00:00+00:00",
+                     approved_at="2026-11-01T09:10:00+00:00", mrn_system="m", session_id="r")
+    erp.post("/fhir", json=b)
+    f = erp.get("/api/followups").json()[0]
+    assert f["state"] == "overdue"
+    assert f["reminder_ur"].startswith("السلام علیکم Ayesha") and "04/11/2026" in f["reminder_ur"]
+    assert f["whatsapp_url"].startswith("https://wa.me/923001234567?text=%D8%A7")
+    erp.post(f"/api/followups/{f['id']}/done")
+    f = erp.get("/api/followups").json()[0]
+    assert (f["state"], f["reminder_ur"], f["whatsapp_url"]) == ("done", None, None)

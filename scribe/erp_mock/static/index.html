@@ -36,6 +36,7 @@
   .filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
   .filters button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
   .empty { color:var(--muted); font-size:14px; }
+  a.btnlink { font-size:13px; border:1px solid var(--line); border-radius:7px; padding:4px 10px; color:var(--accent); text-decoration:none; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -52,7 +53,7 @@
   <div class="card">
     <h2>Follow-ups</h2>
     <div class="filters" id="filters"></div>
-    <table><thead><tr><th>Due</th><th>Status</th><th>Patient</th><th>MRN</th><th>Phone</th><th>Doctor</th><th>Reason</th><th></th></tr></thead>
+    <table><thead><tr><th>Due</th><th>Status</th><th>Patient</th><th>MRN</th><th>Phone</th><th>Doctor</th><th>Reason</th><th>Remind</th><th></th></tr></thead>
       <tbody id="fu"></tbody></table>
     <p class="empty" id="fuEmpty"></p>
   </div>
@@ -118,8 +119,19 @@ async function load() {
       const cancel = el("button", "Cancel"); cancel.onclick = async () => { await fetch(`api/followups/${f.id}/cancel`, { method: "POST" }); load(); };
       cancel.style.marginLeft = "6px"; act.append(done, cancel);
     }
+    const remind = el("td");
+    if (f.whatsapp_url) {
+      const wa = el("a", "WhatsApp"); wa.href = f.whatsapp_url; wa.target = "_blank"; wa.rel = "noopener";
+      wa.className = "btnlink"; remind.append(wa);
+    }
+    if (f.reminder_ur) {
+      const cp = el("button", "Copy text"); cp.title = f.reminder_ur;
+      cp.onclick = async () => { try { await navigator.clipboard.writeText(f.reminder_ur); cp.textContent = "Copied"; }
+                                  catch { cp.textContent = "Copy failed"; } setTimeout(() => cp.textContent = "Copy text", 1500); };
+      cp.style.marginLeft = "6px"; remind.append(cp);
+    }
     tr.append(el("td", f.due_date), status, el("td", f.patient), el("td", f.mrn), el("td", f.phone || "–"),
-              el("td", f.doctor), el("td", f.reason || "–"), act);
+              el("td", f.doctor), el("td", f.reason || "–"), remind, act);
     return tr;
   }));
 }

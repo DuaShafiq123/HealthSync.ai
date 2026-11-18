@@ -42,6 +42,8 @@ def test_full_visit_reaches_erp_and_creates_followup(scribe, erp, tmp_path):
     fu = erp.get("/api/followups").json()
     assert len(fu) == 1
     due = (datetime.now(ZoneInfo("Asia/Karachi")).date() + timedelta(days=14)).isoformat()
+    assert fu[0].pop("whatsapp_url").startswith("https://wa.me/923001234567?text=")
+    assert "Dr. Sana Malik" in fu[0].pop("reminder_ur")
     assert fu[0] | {"id": None} == {"id": None, "due_date": due, "state": "upcoming",
                                     "reason": "Review CBC report", "patient": "Ayesha Khan",
                                     "mrn": "MR-1001", "phone": "0300-1234567",

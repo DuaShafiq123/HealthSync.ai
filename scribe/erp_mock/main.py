@@ -18,6 +18,7 @@ import threading
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import time
@@ -81,6 +82,37 @@ def _rewrite_refs(obj, mapping: dict):
     if isinstance(obj, list):
         return [_rewrite_refs(v, mapping) for v in obj]
     return obj
+
+
+# ---------------- follow-up reminders ----------------
+def pk_whatsapp_number(phone: Optional[str]) -> Optional[str]:
+    """Pakistani mobile number -> international digits for wa.me (03001234567 -> 923001234567)."""
+    if not phone:
+        return None
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if digits.startswith("0092"):
+        digits = digits[2:]
+    if digits.startswith("03") and len(digits) == 11:
+        digits = "92" + digits[1:]
+    return digits if digits.startswith("923") and len(digits) == 12 else None
+
+
+def reminder(f: dict) -> dict:
+    """A short Urdu reminder the staff can send. Nothing is sent automatically."""
+    if f["state"] not in ("overdue", "due", "upcoming") or not f["due_date"]:
+        return {"reminder_ur": None, "whatsapp_url": None}
+    d = date.fromisoformat(f["due_date"]).strftime("%d/%m/%Y")
+    name = f["patient"] or "محترم مریض"
+    doctor = f["doctor"] or "ڈاکٹر"
+    if f["state"] == "overdue":
+        text = (f"السلام علیکم {name}، {doctor} نے آپ کو {d} کو دوبارہ معائنے کے لیے بلایا تھا۔ "
+                "آپ ابھی تک نہیں آئے۔ براہ کرم جلد از جلد ہسپتال تشریف لائیں۔")
+    else:
+        text = (f"السلام علیکم {name}، یاد دہانی: {doctor} نے آپ کو {d} کو دوبارہ معائنے کے لیے بلایا ہے۔ "
+                "براہ کرم اپنی رپورٹس ساتھ لائیں۔")
+    number = pk_whatsapp_number(f.get("phone"))
+    url = f"https://wa.me/{number}?text={quote(text, safe='')}" if number else None
+    return {"reminder_ur": text, "whatsapp_url": url}
 
 
 class Login(BaseModel):
@@ -192,6 +224,7 @@ def create_app(db_path: Optional[str] = None, today=None) -> FastAPI:
                 "doctor": (doc.get("name") or [{}])[0].get("text"),
                 "days_overdue": (t - due).days if state == "overdue" else 0,
             })
+            out[-1].update(reminder(out[-1]))
         order = {"overdue": 0, "due": 1, "upcoming": 2, "done": 3, "cancelled": 4}
         return sorted(out, key=lambda f: (order[f["state"]], f["due_date"] or ""))
 
