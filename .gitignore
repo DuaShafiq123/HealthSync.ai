@@ -1,8 +1,11 @@
 .venv/
 __pycache__/
 .ipynb_checkpoints/
-DATASET_2/
-outputs/
+DATASET_2
 *.avi
 *.mp4
 tempCodeRunnerFile.py
+
+# Folders with face images: never commit
+outputs/failures/
+outputs/subject1/

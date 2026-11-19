@@ -19,7 +19,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------------
 # PART 1: results from windows.csv for this subject
 # ---------------------------------------------------------------
-df = pd.read_csv(os.path.join(SCRIPT_DIR, "outputs", "frozen", "windows.csv"))
+df = pd.read_csv(os.path.join(SCRIPT_DIR, "outputs", "frozen_all", "windows.csv"))
 ids = df["subject"].astype(str).str.replace("subject", "", regex=False).str.strip()
 sub = df[ids == SUBJECT.replace("subject", "")].copy()
 
@@ -139,6 +139,8 @@ ax[2].set_ylabel("HR (beats per minute)")
 ax[2].legend()
 
 plt.tight_layout()
-plt.savefig(os.path.join(SCRIPT_DIR, SUBJECT + "_check.png"), dpi=120)
-print("\nPlot saved as", SUBJECT + "_check.png")
+out_dir = os.path.join(SCRIPT_DIR, "outputs", "reference_check")
+os.makedirs(out_dir, exist_ok=True)
+plt.savefig(os.path.join(out_dir, SUBJECT + "_check.png"), dpi=120)
+print("\nPlot saved in", out_dir)
 plt.show()

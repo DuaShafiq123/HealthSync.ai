@@ -22,7 +22,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(SCRIPT_DIR, "outputs", "reference_check")
 os.makedirs(OUT_DIR, exist_ok=True)
 
-windows = pd.read_csv(os.path.join(SCRIPT_DIR, "outputs", "frozen", "windows.csv"))
+windows = pd.read_csv(os.path.join(SCRIPT_DIR, "outputs", "frozen_all", "windows.csv"))
 ids = windows["subject"].astype(str).str.replace("subject", "", regex=False).str.strip()
 
 
@@ -155,6 +155,11 @@ for subject in SUBJECTS:
 # ===============================================================
 # PRINT AND SAVE
 # ===============================================================
+if not summary:
+    print("\nNo subject could be checked (no rows in windows.csv or no ground_truth.txt "
+          "in DATASET_2). Nothing to save.")
+    raise SystemExit(1)
+
 win_df = pd.DataFrame(all_rows).round(2)
 sum_df = pd.DataFrame(summary)
 pd.set_option("display.width", 250)
