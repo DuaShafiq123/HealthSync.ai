@@ -9,3 +9,5 @@ tempCodeRunnerFile.py
 # Folders with face images: never commit
 outputs/failures/
 outputs/subject1/
+# Resampled 30 fps copy of the dataset (contains faces, never commit)
+DATASET_2_30fps/

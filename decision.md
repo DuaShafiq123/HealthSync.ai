@@ -178,6 +178,20 @@ All tests below were done in `explore.ipynb` on the debug subjects (see D-10).
 
 ---
 
+## Part 5: Model training
+
+### D-20: Resample every subject to exactly 30 fps before training
+- **Date / who:** 20 Nov 2026, Dua (`resample_to_30fps.py`)
+- **Decision:** Before training with rPPG-Toolbox, make a 30 fps copy of all 42 subjects in `DATASET_2_30fps/`. Video frames are blended from the two nearest frames, the PPG wave is interpolated, and the HR line takes the nearest value. The video is saved lossless (FFV1). The original `DATASET_2` is not changed.
+- **Why:** The toolbox assumes every UBFC video is 30 fps. Our videos are 28.7–30.0 fps, and subjects 25, 26 and 27 are about 23.2–23.4 fps. With the wrong fps the toolbox gets the heart rate wrong (about 29% too high for the 23 fps subjects), and its 45–150 BPM filter can cut out the real beat. The same rule is used for all subjects, so it is fair.
+- **Evidence:** `outputs/frozen_run_log.txt` (real fps of every subject; frames = ground-truth samples for all 41 logged subjects). Test on a fake 23.3 fps video with a 90 BPM pulse: without the fix it reads 115.4 BPM, after the fix 90.2 BPM.
+- **Repeated times:** The time line in `ground_truth.txt` is saved in milliseconds, so in 9 subjects two frames sometimes have the **same** time: subjects 1, 4, 5, 9, 10, 18, 37, 49 (once each; in subject 10 it is the last sample) and subject 46 (3 times). No time goes backwards. The script moves the repeated value to halfway before the next time (or one normal step ahead if it is the last sample). Subjects without repeats are not changed. Found with `check_time_line.py`; the count per subject is in `resample_report.csv` (`repeated_times_fixed`).
+- **Note:** Our frozen POS results (D-12 to D-17) are **not** affected, because `rppg_frozen.py` reads the real fps of each video.
+- **Result (20 Nov 2026, Dua's laptop):** all 42 subjects resampled; every subject has fps 30.0, frames = ground-truth samples, lossless check passed; about 20 GB in total. Frame counts before resampling match `outputs/frozen_run_log.txt`.
+- **Status:** ACTIVE
+
+---
+
 ## Open decisions (not decided yet)
 
 | ID | Question | Notes |
