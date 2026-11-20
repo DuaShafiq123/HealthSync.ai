@@ -167,7 +167,28 @@ All tests below were done in `explore.ipynb` on the debug subjects (see D-10).
 - **Decision:** `requirements.txt` lists exact versions (`==`): opencv-python 4.14.0.94, numpy 2.5.4, pandas 3.1.1, matplotlib 3.11.2, scipy 1.18.1, tested with Python 3.14.3 on Windows.
 - **Why:** Without versions, each person gets whatever is newest on the day they install, so results could change later without anyone noticing. With exact versions, the supervisor, examiners and teammates get the same libraries.
 - **Evidence:** Mehroz reproduced all 415 windows exactly with different versions (Python 3.15, pandas 3.1, macOS), so the current results do not depend on these exact versions. This is a safety measure for the future.
-- **Status:** ACTIVE. Abeera and Mehroz should test `pip install -r requirements.txt` once. If a version does not install on their Python, loosen only that line to a range (for example `numpy>=2,<3`).
+- **Status:** REPLACED by D-19 (17 Nov 2026).
+
+### D-19: Use version ranges in `requirements.txt`, and write down the tested versions
+- **Date / who:** 17 Nov 2026, Dua and Abeera
+- **Decision:** `requirements.txt` uses ranges (`>=` lowest tested version, `<` next major version) instead of exact versions. The exact versions each person tested are written as comments at the top of the file.
+- **Why:** The exact versions from D-18 did not install on Abeera's laptop: `numpy 2.5.4` needs Python 3.12 or newer, and Abeera has Python 3.11.9. Ranges let pip choose a version that works with each person's Python.
+- **Evidence:** Abeera's frozen run and cleaned results were made with numpy 2.4.6 and scipy 1.17.1 (Python 3.11.9). On 17 Nov she re-ran `clean_references.py` and `compare_wave_methods.py` on branch `cleanup/repo-tidy`, and every CSV and JSON file was byte-for-byte identical. Mehroz also reproduced the results with Python 3.15. So the results do not depend on these exact versions.
+- **Status:** ACTIVE
+
+---
+
+## Part 5: Model training
+
+### D-20: Resample every subject to exactly 30 fps before training
+- **Date / who:** 20 Nov 2026, Dua (`resample_to_30fps.py`)
+- **Decision:** Before training with rPPG-Toolbox, make a 30 fps copy of all 42 subjects in `DATASET_2_30fps/`. Video frames are blended from the two nearest frames, the PPG wave is interpolated, and the HR line takes the nearest value. The video is saved lossless (FFV1). The original `DATASET_2` is not changed.
+- **Why:** The toolbox assumes every UBFC video is 30 fps. Our videos are 28.7–30.0 fps, and subjects 25, 26 and 27 are about 23.2–23.4 fps. With the wrong fps the toolbox gets the heart rate wrong (about 29% too high for the 23 fps subjects), and its 45–150 BPM filter can cut out the real beat. The same rule is used for all subjects, so it is fair.
+- **Evidence:** `outputs/frozen_run_log.txt` (real fps of every subject; frames = ground-truth samples for all 41 logged subjects). Test on a fake 23.3 fps video with a 90 BPM pulse: without the fix it reads 115.4 BPM, after the fix 90.2 BPM.
+- **Repeated times:** The time line in `ground_truth.txt` is saved in milliseconds, so in 9 subjects two frames sometimes have the **same** time: subjects 1, 4, 5, 9, 10, 18, 37, 49 (once each; in subject 10 it is the last sample) and subject 46 (3 times). No time goes backwards. The script moves the repeated value to halfway before the next time (or one normal step ahead if it is the last sample). Subjects without repeats are not changed. Found with `check_time_line.py`; the count per subject is in `resample_report.csv` (`repeated_times_fixed`).
+- **Note:** Our frozen POS results (D-12 to D-17) are **not** affected, because `rppg_frozen.py` reads the real fps of each video.
+- **Result (20 Nov 2026, Dua's laptop):** all 42 subjects resampled; every subject has fps 30.0, frames = ground-truth samples, lossless check passed; about 20 GB in total. Frame counts before resampling match `outputs/frozen_run_log.txt`.
+- **Status:** ACTIVE
 
 ---
 
@@ -182,5 +203,5 @@ All tests below were done in `explore.ipynb` on the debug subjects (see D-10).
 | O-05 | Why do **group (c)** subjects fail (26, 25, 18, 38, 41, 45, 39)? | 25 and 26 were recorded at about 23 fps (others about 30). 38 = slow drift and hair, 41 = movement and glasses. The method can **not** be changed on these subjects (D-10). Any new method must be built on another dataset first. |
 | O-06 | Test **CHROM** and a second dataset (**PURE**) | Planned in D-01 and D-11, not started. |
 | O-07 | **Reference sensor** for our own phone recordings | Polar H10 (about PKR 40,000) or finger oximeter (about PKR 4,000). |
-| O-08 | **Subject 24** gives 4.19 on Mehroz's laptop vs 4.03 in our CSV | Check whether the local `ground_truth.txt` matches the official file. Subject 24 also changed the most after cleaning (1.34 → 2.58 BPM), together with subject 46 (0.48 → 2.22). |
+| O-08 | **Subject 24** gives 4.19 on Mehroz's laptop vs 4.03 in our CSV | On 17 Nov Abeera's laptop also gave 4.03 (same as Dua's), so Mehroz's local `subject24/ground_truth.txt` probably differs. Mehroz should compare his file with Abeera's. Subject 24 also changed the most after cleaning (1.34 → 2.58 BPM), together with subject 46 (0.48 → 2.22). |
 | O-09 | **Remove the face images from old Git history** | Needs `git filter-repo` and a force push; everyone must clone again afterwards. Team must agree first. |
