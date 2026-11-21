@@ -12,8 +12,21 @@ Why our own script:
 
 Settings (same as the toolbox config UBFC-rPPG_UBFC-rPPG_PURE_PHYSNET_BASIC.yaml):
     DATA_TYPE DiffNormalized, LABEL_TYPE DiffNormalized, CHUNK_LENGTH 128,
-    face box from the FIRST frame (Haar cascade), box made 1.5x larger,
-    resized to 72 x 72.
+    box made 1.5x larger, resized to 72 x 72.
+
+ONE change from the toolbox: how the face is found.
+    The toolbox runs a loose Haar detector on the FIRST frame only and keeps
+    the biggest box. On subject1 that box was the chin, neck and chest, not
+    the face. So we use the face rule of our own POS pipeline instead
+    (D-03, D-05, function detect_face_box in rppg_step1_3.py): grey image,
+    minNeighbors 5, faces at least 80 x 80, biggest face in each of the first
+    30 frames, then the median box. After that, everything is the toolbox code.
+
+Box check: outputs/frozen_run_log.txt has the face box our POS run used for
+each subject (those boxes gave good POS results). The report compares our new
+box with it. If a side moved more than 20 px, or there is no POS box
+(subject4 is not in that log), the subject is listed under
+"Subjects to check by picture": look at it with check_face_box.py.
 
 Input:
     DATASET_2_30fps/subjectX/vid.avi and ground_truth.txt (from resample_to_30fps.py)
@@ -79,6 +92,16 @@ EXP_DATA_NAME = "_".join([
     "Median_face_box{0}".format(USE_MEDIAN_FACE_BOX),
 ])
 
+# Our POS face rule (rppg_step1_3.detect_face_box and rppg_frozen.py, D-03 and D-05).
+N_INIT_FRAMES = 30
+HAAR_SCALE_FACTOR = 1.1
+HAAR_MIN_NEIGHBORS = 5
+HAAR_MIN_SIZE = (80, 80)
+
+# A box is "the same" as the POS box if no side moved more than this (pixels).
+# Small moves are normal: the 30 fps frames are blends of the original frames.
+POS_BOX_MAX_DIFF_PX = 20
+
 # The toolbox uses its own copy of this file; it is byte-for-byte the same as OpenCV's.
 HAAR_FILE = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
 
@@ -107,64 +130,55 @@ def read_wave(bvp_file):
     return np.asarray(bvp)
 
 
-def face_detection(frame, detector, use_larger_box=False, larger_box_coef=1.0):
-    """BaseLoader.face_detection with backend HC. Also returns how many faces were found."""
-    face_zone = detector.detectMultiScale(frame[:, :, :3].astype(np.uint8))
-    if len(face_zone) < 1:
-        print("ERROR: No Face Detected")
-        face_box_coor = [0, 0, frame.shape[0], frame.shape[1]]
-    elif len(face_zone) >= 2:
-        max_width_index = np.argmax(face_zone[:, 2])
-        face_box_coor = face_zone[max_width_index]
-        print("Warning: More than one faces are detected. Only cropping the biggest one.")
-    else:
-        face_box_coor = face_zone[0]
-
-    if use_larger_box:
-        face_box_coor[0] = max(0, face_box_coor[0] - (larger_box_coef - 1.0) / 2 * face_box_coor[2])
-        face_box_coor[1] = max(0, face_box_coor[1] - (larger_box_coef - 1.0) / 2 * face_box_coor[3])
-        face_box_coor[2] = larger_box_coef * face_box_coor[2]
-        face_box_coor[3] = larger_box_coef * face_box_coor[3]
-    return face_box_coor, len(face_zone)
+def find_faces(frame_rgb, detector):
+    """All face boxes in one frame, with the same settings as our POS pipeline."""
+    gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)  # same grey image as BGR2GRAY on the BGR frame
+    return detector.detectMultiScale(gray, scaleFactor=HAAR_SCALE_FACTOR,
+                                     minNeighbors=HAAR_MIN_NEIGHBORS, minSize=HAAR_MIN_SIZE)
 
 
-def crop_face_resize(frames, detector, use_face_detection, use_larger_box, larger_box_coef,
-                     use_dynamic_detection, detection_freq, use_median_box, width, height):
-    """BaseLoader.crop_face_resize. Also returns the face box and the face counts."""
-    if use_dynamic_detection:
-        num_dynamic_det = ceil(frames.shape[0] / detection_freq)
-    else:
-        num_dynamic_det = 1
-    face_region_all = []
-    face_counts = []
-    for idx in range(num_dynamic_det):
-        if use_face_detection:
-            box, count = face_detection(frames[detection_freq * idx], detector, use_larger_box, larger_box_coef)
-            face_region_all.append(box)
-            face_counts.append(count)
-        else:
-            face_region_all.append([0, 0, frames.shape[1], frames.shape[2]])
-    face_region_all = np.asarray(face_region_all, dtype='int')
-    if use_median_box:
-        face_region_median = np.median(face_region_all, axis=0).astype('int')
+def find_face_box(frames, detector):
+    """OUR face rule (not the toolbox's): biggest face in each of the first 30 frames,
+    then the median box. Returns the box (x, y, w, h) before enlarging, plus counts."""
+    dets = []
+    no_face = 0
+    many_faces = 0
+    n_checked = min(N_INIT_FRAMES, len(frames))
+    for i in range(n_checked):
+        faces = find_faces(frames[i], detector)
+        if len(faces) == 0:
+            no_face += 1
+            continue
+        if len(faces) > 1:
+            many_faces += 1
+        dets.append(max(faces, key=lambda b: b[2] * b[3]))
+    if not dets:
+        raise ValueError(f"no face found in the first {n_checked} frames")
+    box = np.median(np.array(dets, dtype=float), axis=0)
+    return box, n_checked, no_face, many_faces
 
+
+def enlarge_box(box, larger_box_coef):
+    """Toolbox code (BaseLoader.face_detection, use_larger_box part).
+    The box is kept as whole numbers, like the toolbox's face box."""
+    face_box_coor = np.array(np.round(box), dtype=np.int32)
+    face_box_coor[0] = max(0, face_box_coor[0] - (larger_box_coef - 1.0) / 2 * face_box_coor[2])
+    face_box_coor[1] = max(0, face_box_coor[1] - (larger_box_coef - 1.0) / 2 * face_box_coor[3])
+    face_box_coor[2] = larger_box_coef * face_box_coor[2]
+    face_box_coor[3] = larger_box_coef * face_box_coor[3]
+    return face_box_coor
+
+
+def crop_resize(frames, face_region, width, height):
+    """Toolbox code (BaseLoader.crop_face_resize) for one fixed face box."""
     total_frames, _, _, channels = frames.shape
     resized_frames = np.zeros((total_frames, height, width, channels))
     for i in range(0, total_frames):
         frame = frames[i]
-        if use_dynamic_detection:
-            reference_index = i // detection_freq
-        else:
-            reference_index = 0
-        if use_face_detection:
-            if use_median_box:
-                face_region = face_region_median
-            else:
-                face_region = face_region_all[reference_index]
-            frame = frame[max(face_region[1], 0):min(face_region[1] + face_region[3], frame.shape[0]),
-                    max(face_region[0], 0):min(face_region[0] + face_region[2], frame.shape[1])]
+        frame = frame[max(face_region[1], 0):min(face_region[1] + face_region[3], frame.shape[0]),
+                max(face_region[0], 0):min(face_region[0] + face_region[2], frame.shape[1])]
         resized_frames[i] = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
-    return resized_frames, face_region_all[0], face_counts
+    return resized_frames
 
 
 def diff_normalize_data(data):
@@ -200,11 +214,10 @@ def chunk(frames, bvps, chunk_length):
 
 
 def preprocess(frames, bvps, detector):
-    """BaseLoader.preprocess with the PhysNet settings above."""
-    frames, face_box, face_counts = crop_face_resize(
-        frames, detector, DO_CROP_FACE, USE_LARGE_FACE_BOX, LARGE_BOX_COEF,
-        DO_DYNAMIC_DETECTION, DYNAMIC_DETECTION_FREQUENCY, USE_MEDIAN_FACE_BOX,
-        RESIZE_W, RESIZE_H)
+    """BaseLoader.preprocess with the PhysNet settings above (face box: our rule)."""
+    box, n_checked, no_face, many_faces = find_face_box(frames, detector)
+    face_box = enlarge_box(box, LARGE_BOX_COEF)
+    frames = crop_resize(frames, face_box, RESIZE_W, RESIZE_H)
     data = list()
     for data_type in DATA_TYPE:
         f_c = frames.copy()
@@ -218,7 +231,9 @@ def preprocess(frames, bvps, detector):
     else:
         raise ValueError("Only DiffNormalized is used for PhysNet.")
     frames_clips, bvps_clips = chunk(data, bvps, CHUNK_LENGTH)
-    return frames_clips, bvps_clips, face_box, face_counts
+    face_info = {"frames_checked": n_checked, "frames_no_face": no_face, "frames_many_faces": many_faces,
+                 "median_box": box}
+    return frames_clips, bvps_clips, face_box, face_info
 
 
 def save(frames_clips, bvps_clips, cached_path, filename):
@@ -235,6 +250,26 @@ def subject_number(path):
     return int(re.search(r"subject(\d+)", path).group(1))
 
 
+def load_pos_boxes(log_path):
+    """Face boxes our frozen POS run used, read from outputs/frozen_run_log.txt.
+    Returns {subject: [x, y, w, h]}. These boxes gave good POS results, so our new
+    box (before the 1.5x enlargement) should be almost the same."""
+    boxes = {}
+    if not os.path.exists(log_path):
+        return boxes
+    subject = None
+    with open(log_path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = re.match(r"===== (subject\d+) =====", line.strip())
+            if m:
+                subject = m.group(1)
+                continue
+            m = re.search(r"face box: \[([^\]]+)\]", line)
+            if m and subject:
+                boxes[subject] = [float(v) for v in m.group(1).split()]
+    return boxes
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     parser = argparse.ArgumentParser(description="Prepare UBFC 30 fps data for PhysNet (rPPG-Toolbox).")
@@ -242,6 +277,8 @@ def main():
     parser.add_argument("--out", default=os.path.join(here, "PreprocessedData"))
     parser.add_argument("--subjects", nargs="*", default=None)
     parser.add_argument("--zip", action="store_true", help="make PreprocessedData_PhysNet.zip at the end")
+    parser.add_argument("--pos-log", default=os.path.join(here, "outputs", "frozen_run_log.txt"),
+                        help="POS run log with the face box of each subject (for the box check)")
     args = parser.parse_args()
 
     detector = cv2.CascadeClassifier(HAAR_FILE)
@@ -259,14 +296,20 @@ def main():
         sys.exit(f"No subject folders found in {args.data}")
 
     cached_path = os.path.join(args.out, EXP_DATA_NAME)
+    pos_boxes = load_pos_boxes(args.pos_log)
+    print(f"POS face boxes found for the box check: {len(pos_boxes)} subjects")
     print(f"Subjects to prepare: {len(dirs)}")
     print(f"Output folder: {cached_path}\n")
 
     report_path = os.path.join(args.out, "preprocess_report.csv")
     old_rows = {}
-    if os.path.exists(report_path):  # keep rows of subjects done in an earlier run
+    if os.path.exists(report_path):  # keep rows of subjects done in an earlier run (same columns only)
         with open(report_path, newline="") as f:
-            old_rows = {r["subject"]: r for r in csv.DictReader(f)}
+            reader = csv.DictReader(f)
+            if "diff_vs_pos_px" in (reader.fieldnames or []):
+                old_rows = {r["subject"]: r for r in reader}
+            else:
+                print("Old report has the old face columns: starting a new report.\n")
 
     rows, failed, problems = [], [], []
     for d in dirs:
@@ -286,18 +329,31 @@ def main():
                     glob.glob(os.path.join(cached_path, f"{name}_label*.npy")):
                 os.remove(old)
 
-            frames_clips, bvps_clips, face_box, face_counts = preprocess(frames, bvps, detector)
+            frames_clips, bvps_clips, face_box, face_info = preprocess(frames, bvps, detector)
             n_chunks = save(frames_clips, bvps_clips, cached_path, name)
-            faces = face_counts[0]
             has_nan = bool(np.isnan(frames_clips).any() or np.isnan(bvps_clips).any())
-            note = ""
-            if faces == 0:
-                note = "NO FACE FOUND: whole frame was used"
-            elif faces > 1:
-                note = f"{faces} faces found: biggest one used"
+            # Box check against the POS box (the box before the 1.5x enlargement).
+            pos_box = pos_boxes.get(name)
+            if pos_box is not None:
+                diff = int(round(max(abs(a - b) for a, b in zip(face_info["median_box"], pos_box))))
+            else:
+                diff = None
+            notes, is_problem = [], False
+            if diff is None:
+                notes.append("no POS box to compare: check picture")
+                is_problem = True
+            elif diff > POS_BOX_MAX_DIFF_PX:
+                notes.append(f"box is {diff} px away from the POS box: check picture")
+                is_problem = True
+            if face_info["frames_many_faces"] > 0:
+                notes.append(f"2+ faces in {face_info['frames_many_faces']} of {face_info['frames_checked']} frames")
+            if face_info["frames_no_face"] > 0:
+                notes.append(f"no face in {face_info['frames_no_face']} of {face_info['frames_checked']} frames")
             if has_nan:
-                note = (note + "; " if note else "") + "NaN in output"
-            if note:
+                notes.append("NaN in output")
+                is_problem = True
+            note = "; ".join(notes)
+            if is_problem:
                 problems.append(f"{name}: {note}")
             row = {
                 "subject": name,
@@ -305,14 +361,22 @@ def main():
                 "chunks": n_chunks,
                 "frames_used": n_chunks * CHUNK_LENGTH,
                 "frame_size": f"{frames.shape[2]}x{frames.shape[1]}",
-                "faces_found": faces,
+                "frames_checked": face_info["frames_checked"],
+                "frames_no_face": face_info["frames_no_face"],
+                "frames_many_faces": face_info["frames_many_faces"],
                 "face_box_x_y_w_h": " ".join(str(int(v)) for v in face_box),
+                "box_before_1.5x": " ".join(str(int(round(v))) for v in face_info["median_box"]),
+                "pos_box": " ".join(str(int(round(v))) for v in pos_box) if pos_box is not None else "",
+                "diff_vs_pos_px": "" if diff is None else diff,
                 "note": note,
                 "seconds": round(time.time() - start),
             }
             rows.append(row)
-            print(f"frames {len(frames)}, chunks {n_chunks}, faces found {faces}, "
-                  f"box {row['face_box_x_y_w_h']}, {row['seconds']} s" + (f"  <-- {note}" if note else ""))
+            print(f"frames {len(frames)}, chunks {n_chunks}, "
+                  f"face: 2+ faces in {face_info['frames_many_faces']}, none in {face_info['frames_no_face']} "
+                  f"of {face_info['frames_checked']} frames, "
+                  f"box {row['box_before_1.5x']} (POS box {row['pos_box'] or 'none'}, diff {row['diff_vs_pos_px'] if row['diff_vs_pos_px'] != '' else '-'} px), "
+                  f"{row['seconds']} s" + (f"  <-- {note}" if note else ""))
         except Exception as e:
             failed.append(name)
             print(f"[FAILED] {name}: {e}")
@@ -323,8 +387,9 @@ def main():
         old_rows[r["subject"]] = r
     all_rows = sorted(old_rows.values(), key=lambda r: subject_number(r["subject"]))
     os.makedirs(args.out, exist_ok=True)
-    fields = ["subject", "frames", "chunks", "frames_used", "frame_size", "faces_found",
-              "face_box_x_y_w_h", "note", "seconds"]
+    fields = ["subject", "frames", "chunks", "frames_used", "frame_size", "frames_checked",
+              "frames_no_face", "frames_many_faces", "face_box_x_y_w_h", "box_before_1.5x", "pos_box",
+              "diff_vs_pos_px", "note", "seconds"]
     with open(report_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
@@ -334,7 +399,7 @@ def main():
     size_gb = sum(os.path.getsize(p) for p in glob.glob(os.path.join(cached_path, "*.npy"))) / 1e9
     print("===== SUMMARY =====")
     print(f"Done: {len(rows)}   Failed: {len(failed)} {failed}")
-    print(f"Subjects with a problem: {problems if problems else 'none'}")
+    print(f"Subjects to check by picture: {problems if problems else 'none'}")
     print(f"Subjects in report: {len(all_rows)}   Total chunks: {sum(int(r['chunks']) for r in all_rows)}")
     print(f"Files in output folder: {n_files}   Size: {size_gb:.1f} GB")
     print(f"Report saved to: {report_path}")
@@ -342,6 +407,8 @@ def main():
     if args.zip:
         if failed:
             sys.exit("Zip NOT made, because some subjects failed. Fix them first.")
+        if problems:
+            print("\nNOTE: zip is made, but check the pictures of the subjects above before uploading it.")
         zip_path = os.path.join(os.path.dirname(os.path.abspath(args.out)), "PreprocessedData_PhysNet.zip")
         print(f"\nMaking zip (no compression, the numbers do not shrink much): {zip_path}")
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as z:

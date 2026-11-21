@@ -191,10 +191,11 @@ All tests below were done in `explore.ipynb` on the debug subjects (see D-10).
 - **Status:** ACTIVE
 
 ### D-21: Train PhysNet, and prepare the videos with our own copy of the toolbox code
-- **Date / who:** 21 Nov 2026, team (`preprocess_for_kaggle.py`)
-- **Decision:** The deep model is PhysNet (rPPG-Toolbox), with the settings of the toolbox config `UBFC-rPPG_UBFC-rPPG_PURE_PHYSNET_BASIC.yaml` (DiffNormalized, 128-frame chunks, Haar face box x1.5, 72x72). The videos are prepared on our laptop with `preprocess_for_kaggle.py`, then uploaded to Kaggle as one zip.
+- **Date / who:** 21 Nov 2026, team (`preprocess_for_kaggle.py`, `check_face_box.py`)
+- **Decision:** The deep model is PhysNet (rPPG-Toolbox), with the settings of the toolbox config `UBFC-rPPG_UBFC-rPPG_PURE_PHYSNET_BASIC.yaml` (DiffNormalized, 128-frame chunks, one fixed face box made 1.5x larger, 72x72). The videos are prepared on our laptop with `preprocess_for_kaggle.py`, then uploaded to Kaggle as one zip.
 - **Why:** PhysNet is simple, works well on UBFC and makes the smallest files (about 5 GB). The toolbox itself needs Python 3.8 and mamba, which do not install on Windows, so the script copies the toolbox's preparation code exactly (commit b7500b8).
-- **Evidence:** On test videos, the script and the real toolbox made byte-for-byte identical files (10 of 10).
+- **One change from the toolbox, the face box:** The toolbox runs a loose Haar detector on the first frame only and keeps the biggest box. On subject 1 it found 2 "faces" and picked the wrong one (chin, neck and chest). So the script uses the face rule of our POS pipeline instead (D-03, D-05): grey image, minNeighbors 5, faces at least 80 x 80, biggest face in each of the first 30 frames, median box. The script compares every box with the box in `outputs/frozen_run_log.txt` (the box that gave our POS results) and lists subjects that differ by more than 20 px, or have no POS box (subject 4), to check by picture with `check_face_box.py`. Pictures stay in `PreprocessedData/face_check/` and are never committed or shared.
+- **Evidence:** On test videos, with the same face box, the script and the real toolbox made byte-for-byte identical files (10 of 10). Subject 1: toolbox box was on the chin and neck; the POS box `[286, 184, 147, 147]` is on the face, and POS got 0.32 BPM error on subject 1.
 - **Status:** ACTIVE
 
 ---
