@@ -190,6 +190,13 @@ All tests below were done in `explore.ipynb` on the debug subjects (see D-10).
 - **Result (20 Nov 2026, Dua's laptop):** all 42 subjects resampled; every subject has fps 30.0, frames = ground-truth samples, lossless check passed; about 20 GB in total. Frame counts before resampling match `outputs/frozen_run_log.txt`.
 - **Status:** ACTIVE
 
+### D-21: Train PhysNet, and prepare the videos with our own copy of the toolbox code
+- **Date / who:** 21 Nov 2026, team (`preprocess_for_kaggle.py`)
+- **Decision:** The deep model is PhysNet (rPPG-Toolbox), with the settings of the toolbox config `UBFC-rPPG_UBFC-rPPG_PURE_PHYSNET_BASIC.yaml` (DiffNormalized, 128-frame chunks, Haar face box x1.5, 72x72). The videos are prepared on our laptop with `preprocess_for_kaggle.py`, then uploaded to Kaggle as one zip.
+- **Why:** PhysNet is simple, works well on UBFC and makes the smallest files (about 5 GB). The toolbox itself needs Python 3.8 and mamba, which do not install on Windows, so the script copies the toolbox's preparation code exactly (commit b7500b8).
+- **Evidence:** On test videos, the script and the real toolbox made byte-for-byte identical files (10 of 10).
+- **Status:** ACTIVE
+
 ---
 
 ## Open decisions (not decided yet)

@@ -11,3 +11,6 @@ outputs/failures/
 outputs/subject1/
 # Resampled 30 fps copy of the dataset (contains faces, never commit)
 DATASET_2_30fps/
+# Prepared PhysNet files and zips (contain faces, never commit)
+PreprocessedData/
+*.zip
